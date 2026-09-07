@@ -13,8 +13,8 @@ public:
 
 public slots:
     void SetConnectiveInfo(const QString &qstrInfo) override;
-    bool SetupConnective(void) override;
-    bool SendCommand(const QByteArray &qbtData) override;
+    void SetupConnective(void) override;
+    void SendCommand(const QByteArray &qbtData) override;
 
 
 private slots:

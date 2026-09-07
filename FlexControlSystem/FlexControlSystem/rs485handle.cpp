@@ -4,7 +4,19 @@ RS485Handle::RS485Handle()
 {
     m_bConnect = false;
     m_pSerial = nullptr;
+
+    m_pProtocolHandler = new GeneralProtocol();
+
+
     m_qbtRecvBuffer.clear();
+
+    m_pSendDataTimer = new QTimer(this);
+    connect(m_pSendDataTimer, SIGNAL(timeout()), this, SLOT(OnSendDataTimerTimeout()));
+    m_pSendDataTimer->start(10);
+
+    m_pHeartBeatTimer = new QTimer(this);
+    connect(m_pHeartBeatTimer, SIGNAL(timeout()), this, SLOT(OnHeartBeatTimerTimeout()));
+    m_pHeartBeatTimer->start(1000);
 }
 
 
@@ -23,7 +35,7 @@ void RS485Handle::SetConnectiveInfo(const QString &qstrInfo)
 }
 
 
-bool RS485Handle::SetupConnective(void)
+void RS485Handle::SetupConnective(void)
 {
     m_pSerial = new QSerialPort();
     m_pSerial->setPortName(m_qstrCurrentPort);              // 设置端口名
@@ -44,7 +56,7 @@ bool RS485Handle::SetupConnective(void)
 }
 
 
-bool RS485Handle::SendCommand(const QByteArray &qbtData)
+void RS485Handle::SendCommand(const QByteArray &qbtData)
 {
     m_qbtRecvBuffer.clear();
     m_pSerial->write(qbtData);
@@ -63,4 +75,15 @@ void RS485Handle::ReceivedDataHandler(void)
 //        buffer.remove(0, FRAME_SIZE);
 //        processFrame(frame); // 处理完整帧
 //    }
+}
+
+
+void RS485Handle::OnHeartBeatTimerTimeout(void)
+{
+    // 发送心跳
+}
+
+void RS485Handle::OnSendDataTimerTimeout(void)
+{
+    // 发送心跳
 }

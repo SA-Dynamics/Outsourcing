@@ -3,16 +3,31 @@
 
 #include <QObject>
 
-class ProtocolHandle
+enum class MotionIndex
 {
+    MotionUp,
+    MotionDown,
+    MotionLeft,
+    MotionRight,
+};
+
+class ProtocolHandle : public QObject
+{
+    Q_OBJECT
+
 public:
+
+    Q_ENUM(MotionIndex)
+
     virtual ~ProtocolHandle()
     {
 
     }
 
 public:
-    virtual QByteArray MotionControlProtocol(const uint8_t &u8Index) = 0;
+    virtual void MotionControlProtocol(const MotionIndex eIndex,
+                                       QByteArray &qbtSendCmd,
+                                       QByteArray &qbtRespond) = 0;
 };
 
 

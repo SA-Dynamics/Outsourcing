@@ -18,7 +18,7 @@ void TCPHandle::SetConnectiveInfo(const QString &qstrInfo)
 }
 
 
-bool TCPHandle::SetupConnective(void)
+void TCPHandle::SetupConnective(void)
 {
     m_pSocket = new QTcpSocket(this);
 
@@ -28,7 +28,7 @@ bool TCPHandle::SetupConnective(void)
 }
 
 
-bool TCPHandle::SendCommand(const QByteArray &qbtData)
+void TCPHandle::SendCommand(const QByteArray &qbtData)
 {
 //    socket->write(data); // [reference:12]
 }
