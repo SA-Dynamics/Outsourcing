@@ -14,12 +14,16 @@ public:
 
     }
 
-public slots:
-    virtual void SetConnectiveInfo(const QString &qstrInfo) = 0;
-    virtual void SetupConnective(void) = 0;
+public slots:    
+//    virtual void SetConnectiveInfo(const QString &qstrInfo) = 0;
+//    virtual void SetupConnective(void) = 0;
     virtual void SendCommand(const QByteArray &qbtData) = 0;
 
+private slots:
+    virtual void SetupConnective(const QString &qstrInfo) = 0;
+
 signals:
+    void sigSetUpConnective(const QString &qstrInfo);
     void sigConnectiveState(const bool &bState);
 };
 

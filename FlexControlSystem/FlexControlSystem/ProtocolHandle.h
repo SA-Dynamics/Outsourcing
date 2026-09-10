@@ -28,6 +28,8 @@ public:
     virtual void MotionControlProtocol(const MotionIndex eIndex,
                                        QByteArray &qbtSendCmd,
                                        QByteArray &qbtRespond) = 0;
+
+    virtual void SWHeartBeatProtocol(QByteArray &qbtHeart) = 0;
 };
 
 

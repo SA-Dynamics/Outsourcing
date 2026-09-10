@@ -12,13 +12,13 @@ TCPHandle::~TCPHandle()
 }
 
 
-void TCPHandle::SetConnectiveInfo(const QString &qstrInfo)
-{
-    m_qstrTargetIP = qstrInfo;
-}
+//void TCPHandle::SetConnectiveInfo(const QString &qstrInfo)
+//{
+//    m_qstrTargetIP = qstrInfo;
+//}
 
 
-void TCPHandle::SetupConnective(void)
+void TCPHandle::SetupConnective(const QString &qstrInfo)
 {
     m_pSocket = new QTcpSocket(this);
 

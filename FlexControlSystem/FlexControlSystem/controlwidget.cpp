@@ -112,3 +112,32 @@ void ControlWidget::OnConnectiveState(const bool &bState)
 
     }
 }
+
+void ControlWidget::on_pbRS485Connect_clicked()
+{
+//    disconnect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
+
+    m_ConnectiveHandler = new RS485Handle();
+    m_pConnectiveThread = new QThread();
+    m_ConnectiveHandler->moveToThread(m_pConnectiveThread);
+
+    connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
+
+    m_eConnectObject = ConnectObject::Object485;
+
+    m_pConnectiveThread->start();
+
+    emit m_ConnectiveHandler->sigSetUpConnective(ui->cbCOM->currentText());
+
+}
+
+
+void ControlWidget::on_pbRS485Disconnect_clicked()
+{
+    if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
+    {
+        m_ConnectiveHandler->deleteLater();
+        m_pConnectiveThread->quit();
+        m_pConnectiveThread->wait();
+    }
+}

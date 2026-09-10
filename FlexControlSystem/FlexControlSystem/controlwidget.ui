@@ -45,7 +45,7 @@
           <item row="0" column="0">
            <widget class="QTabWidget" name="tabWidget">
             <property name="currentIndex">
-             <number>0</number>
+             <number>1</number>
             </property>
             <widget class="QWidget" name="tab">
              <attribute name="title">
@@ -126,7 +126,7 @@
               <item row="0" column="0">
                <layout class="QGridLayout" name="gridLayout_7">
                 <item row="0" column="2">
-                 <widget class="QPushButton" name="pushButton_3">
+                 <widget class="QPushButton" name="pbRS485Connect">
                   <property name="text">
                    <string>连接</string>
                   </property>
@@ -136,7 +136,7 @@
                  <widget class="QComboBox" name="cbCOM"/>
                 </item>
                 <item row="1" column="2">
-                 <widget class="QPushButton" name="pushButton_4">
+                 <widget class="QPushButton" name="pbRS485Disconnect">
                   <property name="enabled">
                    <bool>false</bool>
                   </property>
@@ -257,6 +257,47 @@
             <property name="title">
              <string>模式</string>
             </property>
+            <layout class="QGridLayout" name="gridLayout_16">
+             <item row="0" column="0">
+              <layout class="QGridLayout" name="gridLayout_15">
+               <item row="0" column="2">
+                <widget class="QPushButton" name="pushButton_3">
+                 <property name="text">
+                  <string>模式另存为</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="pushButton_2">
+                 <property name="text">
+                  <string>保存模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="0">
+                <widget class="QPushButton" name="pushButton">
+                 <property name="text">
+                  <string>打开模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="3">
+                <widget class="QPushButton" name="pushButton_4">
+                 <property name="text">
+                  <string>新建模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="4">
+                <widget class="QPushButton" name="pushButton_5">
+                 <property name="text">
+                  <string>发送模式</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
            </widget>
           </item>
          </layout>

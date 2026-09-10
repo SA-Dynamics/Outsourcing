@@ -39,6 +39,10 @@ private slots:
 
     void on_pbTCPDisconnect_clicked();
 
+    void on_pbRS485Connect_clicked();
+
+    void on_pbRS485Disconnect_clicked();
+
 private:
     Ui::ControlWidget *ui;
     ConnectiveHandle *m_ConnectiveHandler;
