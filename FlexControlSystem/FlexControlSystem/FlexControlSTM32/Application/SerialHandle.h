@@ -16,21 +16,13 @@ typedef enum
 }InfoTypeype;
 
 
-typedef enum
-{
-	MOTION_NONE = 0,
-	MOTION_UP,
-	MOTION_DOWN,
-	MOTION_LEFT,
-	MOTION_RIGHT,
-	MOTION_GATHER,
-}MotionIndex;
+
 
 
 typedef struct
 {
 	InfoTypeype eInfo;
-	MotionIndex eMotionIndex;
+	uint8_t u8MotionIndex;
 }SerialInfo;
 
 extern void CbUartIdleHandler(UART_HandleTypeDef *huart);
