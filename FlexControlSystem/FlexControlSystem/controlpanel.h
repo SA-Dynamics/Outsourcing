@@ -5,7 +5,7 @@
 #include <QButtonGroup>
 #include <QPushButton>
 
-#include "ProtocolHandle.h"
+#include "generalprotocol.h"
 #include "ConnectiveHandle.h"
 
 
@@ -21,17 +21,36 @@ public:
     explicit ControlPanel(QWidget *parent = nullptr);
     ~ControlPanel();
 
+    struct ButtonParams
+    {
+        QPushButton *pButton;
+        QString qstrName;
+        MotionIndex eMotion;
+        QList<QMap<QString, float>> qlstMotionParams;
+    };
+
+    void SetReadOnly(const bool bReadOnly);
+
 private:
     Ui::ControlPanel *ui;
 
     QButtonGroup *m_pMotionGroup;
-    QList<QPushButton *> m_lstMotionButtons;
+    QList<ButtonParams> m_lstMotionButtons;
+    QString m_qstrCurrentMotionButton;
+    void GetSettingParams(void);
 
 public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);
 
 signals:
-    void sigMotion(const MotionIndex &eIndex);
+    void sigMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
+
+private slots:
+    void on_dspbVoltage_valueChanged(double arg1);
+    void on_dspbFrequency_valueChanged(double arg1);
+    void on_dspbTime_valueChanged(double arg1);
+    void on_pbSendMotion_clicked();
+    void on_pbSendMotionStop_clicked();
 };
 
 #endif // CONTROLPANEL_H

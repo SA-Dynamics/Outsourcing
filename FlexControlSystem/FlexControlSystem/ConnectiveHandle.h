@@ -17,7 +17,7 @@ public:
 public slots:    
 //    virtual void SetConnectiveInfo(const QString &qstrInfo) = 0;
 //    virtual void SetupConnective(void) = 0;
-    virtual void SendCommand(const QByteArray &qbtData) = 0;
+    virtual void SendCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) = 0;
 
 private slots:
     virtual void SetupConnective(const QString &qstrInfo) = 0;

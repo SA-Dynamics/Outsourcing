@@ -9,6 +9,8 @@ enum class MotionIndex
     MotionDown,
     MotionLeft,
     MotionRight,
+    MotionGather,
+    MotionHCentered,
 };
 
 class ProtocolHandle : public QObject

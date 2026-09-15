@@ -28,7 +28,7 @@ void TCPHandle::SetupConnective(const QString &qstrInfo)
 }
 
 
-void TCPHandle::SendCommand(const QByteArray &qbtData)
+void TCPHandle::SendCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
 {
 //    socket->write(data); // [reference:12]
 }

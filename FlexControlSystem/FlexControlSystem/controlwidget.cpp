@@ -16,6 +16,7 @@ ControlWidget::ControlWidget(QWidget *parent)
 
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
+    m_pModeWidget->SetReadOnly(true);
 
 //    m_pRS485Handler = new RS485Handle();
 //    m_pTCPHandler = new TCPHandle();
@@ -72,6 +73,7 @@ void ControlWidget::SetConnectSlot(const bool bSet)
     if (bSet)
     {
         connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
+        connect(m_pControlWidget, SIGNAL(sigMotion(QByteArray)), m_ConnectiveHandler, SLOT(SendCommand(QByteArray, QByteArray)));
     }
     else
     {
@@ -117,6 +119,7 @@ void ControlWidget::on_pbRS485Connect_clicked()
 {
 //    disconnect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
 
+    // 点击了连接，创建485通信对象
     m_ConnectiveHandler = new RS485Handle();
     m_pConnectiveThread = new QThread();
     m_ConnectiveHandler->moveToThread(m_pConnectiveThread);
@@ -127,6 +130,7 @@ void ControlWidget::on_pbRS485Connect_clicked()
 
     m_pConnectiveThread->start();
 
+    // 打开串口通信
     emit m_ConnectiveHandler->sigSetUpConnective(ui->cbCOM->currentText());
 
 }
@@ -134,6 +138,7 @@ void ControlWidget::on_pbRS485Connect_clicked()
 
 void ControlWidget::on_pbRS485Disconnect_clicked()
 {
+    // 断开485连接
     if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
     {
         m_ConnectiveHandler->deleteLater();

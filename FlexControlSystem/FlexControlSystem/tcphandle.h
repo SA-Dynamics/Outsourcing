@@ -15,7 +15,7 @@ public:
 public slots:
 //    void SetConnectiveInfo(const QString &qstrInfo) override;
 //    void SetupConnective(void) override;
-    void SendCommand(const QByteArray &qbtData) override;
+    void SendCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) override;
 
 private slots:
     void SetupConnective(const QString &qstrInfo) override;
