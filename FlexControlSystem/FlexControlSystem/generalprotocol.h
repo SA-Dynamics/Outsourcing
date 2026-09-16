@@ -31,16 +31,31 @@ namespace GeneralProtocolItems
 class GeneralProtocol : public ProtocolHandle
 {
 public:
-    GeneralProtocol();
+    // 单例模式
+    static GeneralProtocol& getInstance()
+    {
+        static GeneralProtocol instance;
+        return instance;
+    }
 
-    void MotionControlProtocol(const MotionIndex eIndex,
+    GeneralProtocol(const GeneralProtocol&) = delete;
+    GeneralProtocol& operator=(const GeneralProtocol&) = delete;
+
+    void MotionControlProtocol(const GeneralMotion::MotionParams &sParams,
                                        QByteArray &qbtSendCmd,
                                        QByteArray &qbtRespond) override;
 
     void SWHeartBeatProtocol(QByteArray &qbtHeart) override;
 
 private:
+    GeneralProtocol() = default;
+    ~GeneralProtocol() override;
+
     void CalcCheckSum(QByteArray &qbtSendCmd);
+
+    uint8_t GetMotionIndexCmd(const GeneralMotion::MotionParams::MotionIndex eIndex);
+    void AddCheckSum(QByteArray &qbtData);
+
 };
 
 #endif // GENERALPROTOCOL_H

@@ -3,15 +3,26 @@
 
 #include <QObject>
 
-enum class MotionIndex
+namespace GeneralMotion
 {
-    MotionUp,
-    MotionDown,
-    MotionLeft,
-    MotionRight,
-    MotionGather,
-    MotionHCentered,
-};
+    struct MotionParams
+    {
+        enum class MotionIndex
+        {
+            MotionUp,
+            MotionDown,
+            MotionLeft,
+            MotionRight,
+            MotionGather,
+            MotionHCentered,
+        };
+
+        MotionIndex eIndex;
+        float fVoltage;
+        float fFrequency;
+        float fTimeUse;
+    };
+}
 
 class ProtocolHandle : public QObject
 {
@@ -19,15 +30,13 @@ class ProtocolHandle : public QObject
 
 public:
 
-    Q_ENUM(MotionIndex)
+//    Q_ENUM(GeneralMotion::MotionParams)
 
-    virtual ~ProtocolHandle()
-    {
+    // 单例模式
+    virtual ~ProtocolHandle() = default;
 
-    }
 
-public:
-    virtual void MotionControlProtocol(const MotionIndex eIndex,
+    virtual void MotionControlProtocol(const GeneralMotion::MotionParams &sParams,
                                        QByteArray &qbtSendCmd,
                                        QByteArray &qbtRespond) = 0;
 

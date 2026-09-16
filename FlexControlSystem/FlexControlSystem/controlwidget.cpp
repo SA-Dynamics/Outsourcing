@@ -13,17 +13,10 @@ ControlWidget::ControlWidget(QWidget *parent)
     m_eConnectObject = ConnectObject::ObjectNone;
 
 
-
+    // 控制面板实例化, 一个用于配置, 一个用于控制
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
     m_pModeWidget->SetReadOnly(true);
-
-//    m_pRS485Handler = new RS485Handle();
-//    m_pTCPHandler = new TCPHandle();
-//    m_pRS485Thread = new QThread(this);
-//    m_pTCPThread = new QThread(this);
-//    m_pRS485Handler->moveToThread(m_pRS485Thread);
-//    m_pTCPHandler->moveToThread(m_pTCPThread);
 
 
     QRegularExpression Regex("^[0-9.]+$");
@@ -50,22 +43,22 @@ void ControlWidget::on_leIP_textChanged(const QString &arg1)
 
 }
 
-void ControlWidget::OnMotionButtonClicked(const MotionIndex &eIndex)
-{
-    switch (m_eConnectObject)
-    {
-        case ConnectObject::ObjectTCP:
+//void ControlWidget::OnMotionButtonClicked(const MotionIndex &eIndex)
+//{
+//    switch (m_eConnectObject)
+//    {
+//        case ConnectObject::ObjectTCP:
 
-        break;
+//        break;
 
-        case ConnectObject::Object485:
+//        case ConnectObject::Object485:
 
-        break;
+//        break;
 
-        default:
-            break;
-    }
-}
+//        default:
+//            break;
+//    }
+//}
 
 
 void ControlWidget::SetConnectSlot(const bool bSet)
@@ -73,7 +66,7 @@ void ControlWidget::SetConnectSlot(const bool bSet)
     if (bSet)
     {
         connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
-        connect(m_pControlWidget, SIGNAL(sigMotion(QByteArray)), m_ConnectiveHandler, SLOT(SendCommand(QByteArray, QByteArray)));
+        connect(m_pControlWidget, SIGNAL(sigMotion(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendCommand(QByteArray, QByteArray)));
     }
     else
     {
@@ -123,6 +116,8 @@ void ControlWidget::on_pbRS485Connect_clicked()
     m_ConnectiveHandler = new RS485Handle();
     m_pConnectiveThread = new QThread();
     m_ConnectiveHandler->moveToThread(m_pConnectiveThread);
+
+    SetConnectSlot(true);
 
     connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
 

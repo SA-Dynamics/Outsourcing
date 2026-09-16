@@ -6,7 +6,7 @@
 #include <QPushButton>
 
 #include "generalprotocol.h"
-#include "ConnectiveHandle.h"
+//#include "ConnectiveHandle.h"
 
 
 namespace Ui {
@@ -25,7 +25,7 @@ public:
     {
         QPushButton *pButton;
         QString qstrName;
-        MotionIndex eMotion;
+        GeneralMotion::MotionParams::MotionIndex eMotion;
         QList<QMap<QString, float>> qlstMotionParams;
     };
 
@@ -38,6 +38,8 @@ private:
     QList<ButtonParams> m_lstMotionButtons;
     QString m_qstrCurrentMotionButton;
     void GetSettingParams(void);
+
+    ProtocolHandle *m_pProtocol;
 
 public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);

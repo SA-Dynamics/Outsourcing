@@ -38,7 +38,7 @@ private:
     enum ParseState { WaitHeader1, WaitHeader2, WaitCmd, WaitLength, WaitData, WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2};
     ParseState m_eParseRecvState = WaitHeader1;
 
-    ProtocolHandle *m_pProtocolHandler;
+//    ProtocolHandle &m_pProtocolHandler;
     QVector<QByteArray> m_qvecSendBuffer;
 
     QByteArray m_qbtRecvData;

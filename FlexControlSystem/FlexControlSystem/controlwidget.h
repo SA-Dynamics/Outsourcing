@@ -32,7 +32,7 @@ public:
 private slots:
     void on_pbUpdatePort_clicked();
     void on_leIP_textChanged(const QString &arg1);
-    void OnMotionButtonClicked(const MotionIndex &eIndex);
+//    void OnMotionButtonClicked(const MotionIndex &eIndex);
 
     void on_pbTCPConnect_clicked();
     void OnConnectiveState(const bool &bState);

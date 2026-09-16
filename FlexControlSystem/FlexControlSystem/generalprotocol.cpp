@@ -2,25 +2,112 @@
 
 using namespace GeneralProtocolItems;
 
-GeneralProtocol::GeneralProtocol()
+//GeneralProtocol::GeneralProtocol()
+//{
+
+//}
+
+GeneralProtocol::~GeneralProtocol()
 {
 
 }
 
 
+uint8_t GeneralProtocol::GetMotionIndexCmd(const GeneralMotion::MotionParams::MotionIndex eIndex)
+{
+    uint8_t u8Value = 0;
 
-void GeneralProtocol::MotionControlProtocol(const MotionIndex eIndex,
+    switch (eIndex)
+    {
+        case GeneralMotion::MotionParams::MotionIndex::MotionUp:
+            u8Value = 1;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionDown:
+            u8Value = 2;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionLeft:
+            u8Value = 3;
+            break;
+        case GeneralMotion::MotionParams::MotionIndex::MotionRight:
+            u8Value = 4;
+            break;
+        case GeneralMotion::MotionParams::MotionIndex::MotionGather:
+            u8Value = 5;
+            break;
+        case GeneralMotion::MotionParams::MotionIndex::MotionHCentered:
+            u8Value = 6;
+            break;
+
+        default:
+            break;
+    }
+
+    return u8Value;
+}
+
+
+void GeneralProtocol::AddCheckSum(QByteArray &qbtData)
+{
+    uint16_t u16CheckSum = 0;
+
+    for (int i = 4; i < qbtData.size(); i++)
+    {
+        u16CheckSum += static_cast<uint8_t>(qbtData.at(i));
+    }
+
+    u16CheckSum = ~u16CheckSum + 1;
+
+    qbtData.append(static_cast<uint8_t>(u16CheckSum >> 8));
+    qbtData.append(static_cast<uint8_t>(u16CheckSum & 0xFF));
+
+}
+
+
+void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &sParams,
                                    QByteArray &qbtSendCmd,
                                    QByteArray &qbtRespond)
 {
+    // 将发送数据协议化
     qbtSendCmd.append(u8FRAME_HEAD1);
     qbtSendCmd.append(u8FRAME_HEAD2);
+
+    qbtSendCmd.append(u8SW_MOTION_CMD);
+
+    qbtSendCmd.append(0x7);
+    qbtSendCmd.append(GetMotionIndexCmd(sParams.eIndex));
+
+    uint16_t u16Temp = 0;
+    u16Temp = static_cast<uint16_t>(sParams.fVoltage * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    u16Temp = static_cast<uint16_t>(sParams.fFrequency * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    AddCheckSum(qbtSendCmd);
+
     qbtSendCmd.append(u8FRAME_TAIL1);
     qbtSendCmd.append(u8FRAME_TAIL2);
 
 
+    // 生成对应的应答协议
     qbtRespond.append(u8FRAME_HEAD1);
     qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_MOTION_RESPOND);
+    qbtRespond.append(0x2);
+    qbtRespond.append(GetMotionIndexCmd(sParams.eIndex));
+    qbtRespond.append(0x1);
+
+    AddCheckSum(qbtRespond);
+
     qbtRespond.append(u8FRAME_TAIL1);
     qbtRespond.append(u8FRAME_TAIL2);
 }

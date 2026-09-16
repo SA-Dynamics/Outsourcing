@@ -6,7 +6,7 @@ RS485Handle::RS485Handle()
     m_bConnect = false;
     m_pSerial = nullptr;
 
-    m_pProtocolHandler = new GeneralProtocol();
+//    m_pProtocolHandler = new GeneralProtocol();
 
 
     m_qvecRecvBuffer.clear();
@@ -68,7 +68,8 @@ void RS485Handle::SetupConnective(const QString &qstrInfo)
 void RS485Handle::SendCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
 {
     m_qvecRecvBuffer.clear();
-
+    qDebug() << qbtData;
+    qDebug() << qbtRespond;
 }
 
 
@@ -156,7 +157,7 @@ void RS485Handle::OnHeartBeatTimerTimeout(void)
 {
     // 获取心跳数据协议，发送心跳
     QByteArray qbtData;
-    m_pProtocolHandler->SWHeartBeatProtocol(qbtData);
+    //m_pProtocolHandler->SWHeartBeatProtocol(qbtData);
 
     m_qvecSendBuffer.append(qbtData);
 }

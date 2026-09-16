@@ -5,6 +5,7 @@
 #include <QSettings>
 
 
+
 ControlPanel::ControlPanel(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::ControlPanel)
@@ -16,16 +17,18 @@ ControlPanel::ControlPanel(QWidget *parent) :
     m_pMotionGroup = new QButtonGroup();
     m_pMotionGroup->setExclusive(true);
 
+    m_pProtocol = &GeneralProtocol::getInstance();
+
 
     // 按钮集合
     m_lstMotionButtons =
     {
-        {ui->pbUp, "MotionUp", MotionIndex::MotionUp, {}},
-        {ui->pbDown, "MotionDown", MotionIndex::MotionDown, {}},
-        {ui->pbLeft, "MotionLeft", MotionIndex::MotionLeft, {}},
-        {ui->pbRight, "MotionRight", MotionIndex::MotionRight, {}},
-        {ui->pbGather, "MotionGather", MotionIndex::MotionGather, {}},
-        {ui->pbHCentered, "MotionHCentered", MotionIndex::MotionHCentered, {}},
+        {ui->pbUp, "MotionUp", GeneralMotion::MotionParams::MotionIndex::MotionUp, {}},
+        {ui->pbDown, "MotionDown", GeneralMotion::MotionParams::MotionIndex::MotionDown, {}},
+        {ui->pbLeft, "MotionLeft", GeneralMotion::MotionParams::MotionIndex::MotionLeft, {}},
+        {ui->pbRight, "MotionRight", GeneralMotion::MotionParams::MotionIndex::MotionRight, {}},
+        {ui->pbGather, "MotionGather", GeneralMotion::MotionParams::MotionIndex::MotionGather, {}},
+        {ui->pbHCentered, "MotionHCentered", GeneralMotion::MotionParams::MotionIndex::MotionHCentered, {}},
     };
 
 
@@ -43,6 +46,7 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->dspbVoltage, SIGNAL(valueChanged(double)), this, SLOT(on_dspbVoltage_valueChanged(double)));
     connect(ui->dspbFrequency, SIGNAL(valueChanged(double)), this, SLOT(on_dspbFrequency_valueChanged(double)));
     connect(ui->dspbTime, SIGNAL(valueChanged(double)), this, SLOT(on_dspbTime_valueChanged(double)));
+    connect(ui->pbSendMotion, SIGNAL(clicked()), this, SLOT(on_pbSendMotion_clicked()));
 }
 
 ControlPanel::~ControlPanel()
@@ -145,14 +149,23 @@ void ControlPanel::on_dspbTime_valueChanged(double arg1)
 
 
 void ControlPanel::on_pbSendMotion_clicked()
-{
+{    
     for (ButtonParams &Button : m_lstMotionButtons)
     {
         if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
         {
+            qDebug() << "send motion";
             // 发送运动信号
             QByteArray qbtData;
             QByteArray qbtRespond;
+
+            GeneralMotion::MotionParams sParams;
+            sParams.eIndex = Button.eMotion;
+            sParams.fVoltage = Button.qlstMotionParams.first().value("voltage");
+            sParams.fFrequency = Button.qlstMotionParams.first().value("frequency");
+            sParams.fTimeUse = Button.qlstMotionParams.first().value("timeuse");
+
+            m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
 
             emit sigMotion(qbtData, qbtRespond);
         }
