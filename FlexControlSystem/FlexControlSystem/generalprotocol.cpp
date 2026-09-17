@@ -113,8 +113,9 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
 }
 
 
-void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart)
+void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtRespond)
 {
+    // 上位机发送
     qbtHeart.append(u8FRAME_HEAD1);
     qbtHeart.append(u8FRAME_HEAD2);
 
@@ -125,4 +126,16 @@ void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart)
 
     qbtHeart.append(u8FRAME_TAIL1);
     qbtHeart.append(u8FRAME_TAIL2);
+
+    // 下位机应答
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_HEART_BEAT_RESPOND);
+    qbtRespond.append(uint8_t(0));
+    qbtRespond.append(uint8_t(0));
+    qbtRespond.append(uint8_t(0));
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
 }

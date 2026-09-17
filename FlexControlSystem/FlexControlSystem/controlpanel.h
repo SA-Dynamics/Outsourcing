@@ -30,6 +30,9 @@ public:
     };
 
     void SetReadOnly(const bool bReadOnly);
+    void SaveSettings(void);
+    void SaveSettings(const QString &qstrFile);
+    void LoadSettings(const QString &qstrFile);
 
 private:
     Ui::ControlPanel *ui;
@@ -37,9 +40,10 @@ private:
     QButtonGroup *m_pMotionGroup;
     QList<ButtonParams> m_lstMotionButtons;
     QString m_qstrCurrentMotionButton;
-    void GetSettingParams(void);
+    void GetSettingParams(const QString &qstrFileName);
 
     ProtocolHandle *m_pProtocol;
+    QString m_qstrCurrentSettingPath;
 
 public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);

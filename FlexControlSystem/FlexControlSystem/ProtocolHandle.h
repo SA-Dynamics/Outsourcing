@@ -40,7 +40,7 @@ public:
                                        QByteArray &qbtSendCmd,
                                        QByteArray &qbtRespond) = 0;
 
-    virtual void SWHeartBeatProtocol(QByteArray &qbtHeart) = 0;
+    virtual void SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtRespond) = 0;
 };
 
 

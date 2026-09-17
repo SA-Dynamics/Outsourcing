@@ -205,11 +205,11 @@
         <item row="0" column="0">
          <layout class="QGridLayout" name="gridLayout_9">
           <item row="0" column="0">
-           <widget class="QTabWidget" name="tabWidget_2">
+           <widget class="QTabWidget" name="tabPanel">
             <property name="currentIndex">
              <number>0</number>
             </property>
-            <widget class="QWidget" name="tab_3">
+            <widget class="QWidget" name="tabControl">
              <attribute name="title">
               <string>控制板数据</string>
              </attribute>
@@ -230,7 +230,7 @@
               </item>
              </layout>
             </widget>
-            <widget class="QWidget" name="tab_4">
+            <widget class="QWidget" name="tabMode">
              <attribute name="title">
               <string>模式数据</string>
              </attribute>
@@ -260,40 +260,46 @@
             <layout class="QGridLayout" name="gridLayout_16">
              <item row="0" column="0">
               <layout class="QGridLayout" name="gridLayout_15">
-               <item row="0" column="2">
-                <widget class="QPushButton" name="pushButton_3">
-                 <property name="text">
-                  <string>模式另存为</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="QPushButton" name="pushButton_2">
-                 <property name="text">
-                  <string>保存模式</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="0">
-                <widget class="QPushButton" name="pushButton">
-                 <property name="text">
-                  <string>打开模式</string>
-                 </property>
-                </widget>
-               </item>
                <item row="0" column="3">
-                <widget class="QPushButton" name="pushButton_4">
+                <widget class="QPushButton" name="pbNewMode">
                  <property name="text">
                   <string>新建模式</string>
                  </property>
                 </widget>
                </item>
-               <item row="0" column="4">
-                <widget class="QPushButton" name="pushButton_5">
+               <item row="0" column="2">
+                <widget class="QPushButton" name="pbSaveModeAs">
                  <property name="text">
-                  <string>发送模式</string>
+                  <string>模式另存为</string>
                  </property>
                 </widget>
+               </item>
+               <item row="0" column="0">
+                <widget class="QPushButton" name="pbOpenMode">
+                 <property name="text">
+                  <string>打开模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="pbSaveMode">
+                 <property name="text">
+                  <string>保存模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="4">
+                <spacer name="horizontalSpacer_4">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
                </item>
               </layout>
              </item>

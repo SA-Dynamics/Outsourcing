@@ -43,6 +43,16 @@ private slots:
 
     void on_pbRS485Disconnect_clicked();
 
+    void OnConnectiveUnnormal(const QString &qstrName);
+
+    void on_pbOpenMode_clicked();
+
+    void on_pbSaveMode_clicked();
+
+    void on_pbSaveModeAs_clicked();
+
+    void on_pbNewMode_clicked();
+
 private:
     Ui::ControlWidget *ui;
     ConnectiveHandle *m_ConnectiveHandler;

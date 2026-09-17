@@ -19,6 +19,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 SOURCES += \
     controlpanel.cpp \
+    controlsettings.cpp \
     generalprotocol.cpp \
     main.cpp \
     controlwidget.cpp \
@@ -29,6 +30,7 @@ HEADERS += \
     ConnectiveHandle.h \
     ProtocolHandle.h \
     controlpanel.h \
+    controlsettings.h \
     controlwidget.h \
     generalprotocol.h \
     rs485handle.h \

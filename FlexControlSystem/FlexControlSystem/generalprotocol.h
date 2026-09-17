@@ -45,7 +45,7 @@ public:
                                        QByteArray &qbtSendCmd,
                                        QByteArray &qbtRespond) override;
 
-    void SWHeartBeatProtocol(QByteArray &qbtHeart) override;
+    void SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtRespond) override;
 
 private:
     GeneralProtocol() = default;

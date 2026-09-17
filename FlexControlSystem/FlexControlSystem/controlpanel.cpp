@@ -14,6 +14,7 @@ ControlPanel::ControlPanel(QWidget *parent) :
 
     ui->setupUi(parent);
 
+    // 按钮分组
     m_pMotionGroup = new QButtonGroup();
     m_pMotionGroup->setExclusive(true);
 
@@ -32,7 +33,7 @@ ControlPanel::ControlPanel(QWidget *parent) :
     };
 
 
-    GetSettingParams();
+    GetSettingParams("");
 
     // 将按钮加入到button group中
     for (ButtonParams sBtn : m_lstMotionButtons)
@@ -65,15 +66,27 @@ void ControlPanel::SetReadOnly(const bool bReadOnly)
 }
 
 
-void ControlPanel::GetSettingParams(void)
+void ControlPanel::GetSettingParams(const QString &qstrFileName)
 {
-    QString qstrSettingFile = QCoreApplication::applicationDirPath() + "/DefaultConfig.ini";
+    QString qstrSettingFile;
+    if (qstrFileName.isEmpty())
+    {
+        qstrSettingFile = QCoreApplication::applicationDirPath() + "/DefaultConfig.ini";
+    }
+    else
+    {
+        qstrSettingFile = qstrFileName;
+    }
+
+//    QString qstrSettingFile = QCoreApplication::applicationDirPath() + "/DefaultConfig.ini";
 
     if (!QFile::exists(qstrSettingFile))
     {
         qWarning() << "配置文件不存在，使用默认值:" << qstrSettingFile;
         return;
     }
+
+    m_qstrCurrentSettingPath = qstrSettingFile;
 
     QSettings Settings(qstrSettingFile, QSettings::IniFormat);
     Settings.setIniCodec("UTF-8");
@@ -103,6 +116,7 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
         if (pButton == Button.pButton)
         {
             m_qstrCurrentMotionButton = Button.qstrName;
+
             // 将当前按钮的运动参数更新到界面上
             ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage"));
             ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency"));
@@ -153,8 +167,7 @@ void ControlPanel::on_pbSendMotion_clicked()
     for (ButtonParams &Button : m_lstMotionButtons)
     {
         if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
-        {
-            qDebug() << "send motion";
+        {        
             // 发送运动信号
             QByteArray qbtData;
             QByteArray qbtRespond;
@@ -175,4 +188,54 @@ void ControlPanel::on_pbSendMotion_clicked()
 void ControlPanel::on_pbSendMotionStop_clicked()
 {
 
+}
+
+
+void ControlPanel::SaveSettings(void)
+{
+    // 将配置写入到当前打开的配置里
+    QSettings Settings(m_qstrCurrentSettingPath, QSettings::IniFormat);
+
+    Settings.setIniCodec("UTF-8");
+
+    for (ButtonParams &Button : m_lstMotionButtons)
+    {
+        Settings.beginGroup(Button.qstrName);
+
+        Settings.setValue("frequency", Button.qlstMotionParams.first().value("frequency"));
+        Settings.setValue("timeuse", Button.qlstMotionParams.first().value("timeuse"));
+        Settings.setValue("voltage", Button.qlstMotionParams.first().value("voltage"));
+
+        Settings.endGroup();
+    }
+}
+
+
+void ControlPanel::SaveSettings(const QString &qstrFile)
+{
+    if (qstrFile.isEmpty())
+    {
+        return;
+    }
+
+    // 如果目标已存在，先删除
+    if (QFile::exists(qstrFile))
+    {
+        QFile::remove(qstrFile);
+    }
+
+    // 复制
+    QFile::copy(m_qstrCurrentSettingPath, qstrFile);
+
+    // 把修改过的值要写入到新的文件里
+    m_qstrCurrentSettingPath = qstrFile;
+    SaveSettings();
+}
+
+
+void ControlPanel::LoadSettings(const QString &qstrFile)
+{
+    // 设置当前配置路径
+
+    GetSettingParams(qstrFile);
 }

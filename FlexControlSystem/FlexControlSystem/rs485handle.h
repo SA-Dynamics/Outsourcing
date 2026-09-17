@@ -6,6 +6,7 @@
 #include <QSerialPortInfo>
 #include <QTimer>
 #include "generalprotocol.h"
+#include <QMap>
 
 class RS485Handle : public ConnectiveHandle
 {
@@ -17,7 +18,7 @@ public:
 public slots:
 //    void SetConnectiveInfo(const QString &qstrInfo) override;
 //    void SetupConnective(void) override;
-    void SendCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) override;
+    void SendMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) ;
 
 
 private slots:
@@ -36,14 +37,30 @@ private:
     QTimer *m_pParseRecvTimer;
 
     enum ParseState { WaitHeader1, WaitHeader2, WaitCmd, WaitLength, WaitData, WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2};
+    enum class SendCmdType {HeartBeat, MotionCmd, UnknownCmd};
+
+    struct SendCmdStruct
+    {
+        bool bWait;
+        uint32_t u32ExpectedRespondTimeThresh;
+        qint64 i64StartTime;
+        qint64 i64CurrentTime;
+        QByteArray qbtSend;
+        QByteArray qbtRespond;
+    };
+
     ParseState m_eParseRecvState = WaitHeader1;
 
-//    ProtocolHandle &m_pProtocolHandler;
-    QVector<QByteArray> m_qvecSendBuffer;
+    ProtocolHandle *m_pProtocol;
+    QMap<SendCmdType, QVector<SendCmdStruct>> m_qmapSendBuffer;
 
     QByteArray m_qbtRecvData;
     QVector<QByteArray> m_qvecRecvBuffer;
     bool m_bConnect;
+
+    bool m_bMotionCmdSendAllow;
+
+    void RecvMessagePreHandle(void);
 };
 
 #endif // RS485HANDLE_H
