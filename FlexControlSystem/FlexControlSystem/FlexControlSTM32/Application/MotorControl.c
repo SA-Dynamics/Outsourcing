@@ -1,6 +1,7 @@
 #include "MotorControl.h"
 #include "Timer.h"
 #include <string.h>
+#include "SerialHandle.h"
 
 
 #define TRAY_MAX_VIBRATION_FREQ			200
@@ -135,6 +136,13 @@ struct
 }g_sMotionInfoBuffer;
 
 
+struct
+{
+	uint32_t u32TimeUseExpect;
+	uint32_t u32TimerCount;
+}g_sMotionControl;
+
+
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) 
 {
 	if (htim->Instance == TIM2) 
@@ -207,12 +215,12 @@ void SetNormal(const bool bNormal)
 }
 
 
-__weak void CbMotionFinish(const bool bSuccess)
+__weak void CbMotionFinish(const uint8_t u8Index)
 {
 	
 }
 
-
+// 将运动指令存到一个序列里
 void SendMotorInfo(MotorMotionParams *pParams)
 {
 	if (g_sMotionInfoBuffer.u8BufferLen < MOTION_INFO_BUFFER_SIZE)
@@ -224,6 +232,7 @@ void SendMotorInfo(MotorMotionParams *pParams)
 }
 
 
+// 从序列里拿出一个运动指令
 bool GetMotorInfo(MotorMotionParams *pParams)
 {
 	bool bRet = false;
@@ -241,9 +250,18 @@ bool GetMotorInfo(MotorMotionParams *pParams)
 }
 
 
-static void MoveUpMode(void)
+static bool MoveUpMode(void)
 {
+	bool bRet = false;
 	
+	
+	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
+	{
+		CbMotionFinish(1);
+		bRet = true;
+	}
+	
+	return bRet;
 }
 	
 
@@ -255,16 +273,24 @@ void MotorControl(void)
 		MOTION_HANDLE,
 	}eControlStep = GET_INFO;
 	
+	static MotorMotionParams sParams;
+	
 	switch (eControlStep)
 	{
 		case GET_INFO:
-//			if (GetMotorInfo())
-//			{
-//				
-//			}
+			if (GetMotorInfo(&sParams))
+			{
+				eControlStep = MOTION_HANDLE;
+				g_sMotionControl.u32TimeUseExpect = sParams.fTimeUse * 1000;
+				ResetTimerCount(&g_sMotionControl.u32TimerCount);
+			}
 			break;
 		
 		case MOTION_HANDLE:
+			if (MoveUpMode())
+			{
+				eControlStep = GET_INFO;
+			}
 			break;
 		
 		default:

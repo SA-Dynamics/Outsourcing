@@ -52,7 +52,7 @@ void GeneralProtocol::AddCheckSum(QByteArray &qbtData)
 {
     uint16_t u16CheckSum = 0;
 
-    for (int i = 4; i < qbtData.size(); i++)
+    for (int i = 2; i < qbtData.size(); i++)
     {
         u16CheckSum += static_cast<uint8_t>(qbtData.at(i));
     }
@@ -121,8 +121,8 @@ void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtR
 
     qbtHeart.append(u8SW_HEART_BEAT_CMD);
     qbtHeart.append(uint8_t(0));
-    qbtHeart.append(uint8_t(0));
-    qbtHeart.append(uint8_t(0));
+    qbtHeart.append(uint8_t(0xFF));
+    qbtHeart.append(uint8_t(0xFF));
 
     qbtHeart.append(u8FRAME_TAIL1);
     qbtHeart.append(u8FRAME_TAIL2);
@@ -133,8 +133,8 @@ void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtR
 
     qbtRespond.append(u8FW_HEART_BEAT_RESPOND);
     qbtRespond.append(uint8_t(0));
-    qbtRespond.append(uint8_t(0));
-    qbtRespond.append(uint8_t(0));
+    qbtRespond.append(uint8_t(0xFF));
+    qbtRespond.append(uint8_t(0xFE));
 
     qbtRespond.append(u8FRAME_TAIL1);
     qbtRespond.append(u8FRAME_TAIL2);

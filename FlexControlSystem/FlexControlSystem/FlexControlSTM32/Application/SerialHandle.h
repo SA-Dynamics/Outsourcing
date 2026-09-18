@@ -4,8 +4,10 @@
 
 #include "main.h"
 
-#define UART_DATA_BUFFER_SIZE 		256
-#define SERIAL_INFO_BUFFER_SIZE		16
+#define UART_RECV_DATA_BUFFER_SIZE 		256
+#define UART_SEND_DATA_LEN 				32
+#define UART_SEND_BUFFER_SIZE			16
+#define SERIAL_INFO_BUFFER_SIZE			16
 
 
 typedef enum
@@ -13,21 +15,30 @@ typedef enum
 	INFO_NONE = 0,
 	INFO_HEART,
 	INFO_MOTION,
-}InfoTypeype;
+}InfoType;
 
-
+typedef enum
+{
+	RESPOND_NONE = 0,
+	RESPOND_HEART,
+	RESPOND_MOTION_FINISH,
+}RespondType;
 
 
 
 typedef struct
 {
-	InfoTypeype eInfo;
+	InfoType eInfo;
 	uint8_t u8MotionIndex;
+	float fMotionVoltage;
+	float fMotionFrequency;
+	float fMotionTimeUse;
 }SerialInfo;
 
 extern void CbUartIdleHandler(UART_HandleTypeDef *huart);
 
-//void IMU_Init(void);
+void SerialHandleInit(void);
+void SendSerialRespond(const RespondType eType, void *pParams);
 bool GetSerialInfo(SerialInfo *pInfo);
 void SerialDataHandle(void);
 

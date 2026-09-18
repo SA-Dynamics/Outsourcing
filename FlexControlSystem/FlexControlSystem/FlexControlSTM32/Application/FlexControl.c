@@ -6,30 +6,40 @@
 
 void HeartBeatHandler(void)
 {
-	
+	// 将心跳信息反馈给上位机
+	SendSerialRespond(RESPOND_HEART, NULL);
 }
 
 
-void MotorMotionHandler(void)
+void MotorMotionHandler(const SerialInfo *pInfo)
 {
+	// 将运动信息加入到运动序列
+	MotorMotionParams sParams;
+	sParams.eMotionIndex = (MotionIndex)pInfo->u8MotionIndex;
+	sParams.fVoltage = pInfo->fMotionVoltage;
+	sParams.fFrequency = pInfo->fMotionFrequency;
+	sParams.fTimeUse = pInfo->fMotionTimeUse;
 	
+	SendMotorInfo(&sParams);
 }
 
 
-void CbMotionFinish(const bool bSuccess)
+// 运动完成处理回调
+void CbMotionFinish(const uint8_t u8Index)
 {
-	
+	// 将运动完成消息发送给上位机
+	SendSerialRespond(RESPOND_HEART, (void *)&u8Index);
 }
 
 
-void SerialInfoHandle(void)
+void SerialRecvInfoHandle(void)
 {
-	SerialInfo eSerialInfo;
+	static SerialInfo sSerialInfo;
 	
 	// 获取串口消息
-	if (GetSerialInfo(&eSerialInfo))
+	if (GetSerialInfo(&sSerialInfo))
 	{
-		switch (eSerialInfo.eInfo)
+		switch (sSerialInfo.eInfo)
 		{
 			case INFO_HEART:
 				SetNormal(true);
@@ -38,7 +48,7 @@ void SerialInfoHandle(void)
 				break;
 			
 			case INFO_MOTION:
-				MotorMotionHandler();
+				MotorMotionHandler(&sSerialInfo);
 				break;
 			
 			default:
@@ -48,9 +58,16 @@ void SerialInfoHandle(void)
 }
 
 
+void FlexControlInit(void)
+{
+	SerialHandleInit();
+}
+
+
 void FlexControlHandle(void)
 {
-	SerialInfoHandle();
+	SerialRecvInfoHandle();
+	SerialDataHandle();
 }
 
 

@@ -26,7 +26,7 @@ typedef struct
 }MotorMotionParams;
 
 // weak, 外部实现
-void CbMotionFinish(const bool bSuccess);
+void CbMotionFinish(const uint8_t u8Index);
 
 
 void SendMotorInfo(MotorMotionParams *pParams);
