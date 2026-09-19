@@ -113,13 +113,16 @@ static void SendRecvParseInfoToBuffer(const SerialInfo *pInfo)
 
 
 // 解析运动指令
-static void ParseMotionData(SerialInfo *pInfoWrite, uint8_t *pDataStart)
+static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 {
-	pInfoWrite->u8MotionIndex = pDataStart[0];
+	pInfoWrite->u8MotionIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
 	
-	pInfoWrite->fMotionVoltage = (float)((uint16_t)(pDataStart[1] << 8) | pDataStart[2]) / 10.0f;
-	pInfoWrite->fMotionFrequency = (float)((uint16_t)(pDataStart[3] << 8) | pDataStart[4]) / 10.0f;
-	pInfoWrite->fMotionTimeUse = (float)((uint16_t)(pDataStart[5] << 8) | pDataStart[6]) / 10.0f;
+	pInfoWrite->fMotionVoltage = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+	pInfoWrite->fMotionFrequency = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 6) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+	pInfoWrite->fMotionTimeUse = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 7) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 8) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
 }
 
 
@@ -138,7 +141,7 @@ void ParseUartData(SerialDataType *pSerial)
 		
 		case 0x03:
 			sInfo.eInfo = INFO_MOTION;
-			ParseMotionData(&sInfo, &pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE]);
+			ParseMotionData(&sInfo, pSerial);
 			break;
 		
 		default:

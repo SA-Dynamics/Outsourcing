@@ -28,7 +28,7 @@ void MotorMotionHandler(const SerialInfo *pInfo)
 void CbMotionFinish(const uint8_t u8Index)
 {
 	// 将运动完成消息发送给上位机
-	SendSerialRespond(RESPOND_HEART, (void *)&u8Index);
+	SendSerialRespond(RESPOND_MOTION_FINISH, (void *)&u8Index);
 }
 
 
@@ -68,6 +68,8 @@ void FlexControlHandle(void)
 {
 	SerialRecvInfoHandle();
 	SerialDataHandle();
+	
+	MotorControl();
 }
 
 

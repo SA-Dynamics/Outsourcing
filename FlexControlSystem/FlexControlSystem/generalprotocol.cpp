@@ -1,4 +1,5 @@
 #include "generalprotocol.h"
+#include <QDebug>
 
 using namespace GeneralProtocolItems;
 
@@ -82,20 +83,24 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     u16Temp = static_cast<uint16_t>(sParams.fVoltage * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+//    qDebug() << u16Temp;
 
     u16Temp = static_cast<uint16_t>(sParams.fFrequency * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+//    qDebug() << u16Temp;
 
     u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+//    qDebug() << u16Temp;
 
     AddCheckSum(qbtSendCmd);
 
     qbtSendCmd.append(u8FRAME_TAIL1);
     qbtSendCmd.append(u8FRAME_TAIL2);
 
+    qDebug() << "motion data:" << qbtSendCmd.toHex();
 
     // 生成对应的应答协议
     qbtRespond.append(u8FRAME_HEAD1);

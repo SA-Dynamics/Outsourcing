@@ -85,7 +85,7 @@ void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray 
     sSendStruct.qbtSend = qbtData;
     sSendStruct.qbtRespond = qbtRespond;
     sSendStruct.i64StartTime = 0;
-    sSendStruct.u32ExpectedRespondTimeThresh = static_cast<uint16_t>(qbtData[9] << 8) | qbtData[10] + 1000;
+    sSendStruct.u32ExpectedRespondTimeThresh = (static_cast<uint16_t>(qbtData[9] << 8) | qbtData[10]) * 100 + 2000;
     sSendStruct.i64CurrentTime = 0;
 
     qDebug() << "send motion";
@@ -276,7 +276,7 @@ void RS485Handle::OnSendDataTimerTimeout(void)
         }
     }
 
-
+//    m_bMotionCmdSendAllow = true;
     if (m_bMotionCmdSendAllow)
     {
         m_bMotionCmdSendAllow = false;

@@ -31,6 +31,6 @@ void CbMotionFinish(const uint8_t u8Index);
 
 void SendMotorInfo(MotorMotionParams *pParams);
 void SetNormal(const bool bNormal);
-
+void MotorControl(void);
 
 #endif

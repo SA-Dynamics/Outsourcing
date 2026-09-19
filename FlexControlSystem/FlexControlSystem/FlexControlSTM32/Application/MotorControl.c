@@ -138,6 +138,7 @@ struct
 
 struct
 {
+	uint8_t u8Index;
 	uint32_t u32TimeUseExpect;
 	uint32_t u32TimerCount;
 }g_sMotionControl;
@@ -257,7 +258,7 @@ static bool MoveUpMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		CbMotionFinish(1);
+		CbMotionFinish(g_sMotionControl.u8Index);
 		bRet = true;
 	}
 	
@@ -281,6 +282,7 @@ void MotorControl(void)
 			if (GetMotorInfo(&sParams))
 			{
 				eControlStep = MOTION_HANDLE;
+				g_sMotionControl.u8Index = sParams.eMotionIndex;
 				g_sMotionControl.u32TimeUseExpect = sParams.fTimeUse * 1000;
 				ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			}

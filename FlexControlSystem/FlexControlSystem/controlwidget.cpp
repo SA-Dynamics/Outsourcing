@@ -46,22 +46,6 @@ void ControlWidget::on_leIP_textChanged(const QString &arg1)
 
 }
 
-//void ControlWidget::OnMotionButtonClicked(const MotionIndex &eIndex)
-//{
-//    switch (m_eConnectObject)
-//    {
-//        case ConnectObject::ObjectTCP:
-
-//        break;
-
-//        case ConnectObject::Object485:
-
-//        break;
-
-//        default:
-//            break;
-//    }
-//}
 
 
 void ControlWidget::OnConnectiveState(const bool &bState)
@@ -114,20 +98,19 @@ void ControlWidget::SetConnectSlot(const bool bSet)
 
 void ControlWidget::OnConnectiveUnnormal(const QString &qstrName)
 {
-    if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
-    {
-        m_ConnectiveHandler->deleteLater();
-        m_pConnectiveThread->quit();
-        m_pConnectiveThread->wait();
-
-        ui->pbRS485Connect->setEnabled(true);
-        ui->pbRS485Disconnect->setEnabled(false);
-        ui->pbUpdatePort->setEnabled(true);
-    }
-
     if (qstrName == "HeartBeat")
     {
         QMessageBox::critical(this, "错误", "心跳检测丢失");
+        if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
+        {
+            m_ConnectiveHandler->deleteLater();
+            m_pConnectiveThread->quit();
+            m_pConnectiveThread->wait();
+
+            ui->pbRS485Connect->setEnabled(true);
+            ui->pbRS485Disconnect->setEnabled(false);
+            ui->pbUpdatePort->setEnabled(true);
+        }
     }
     else if (qstrName == "MotionRespond")
     {

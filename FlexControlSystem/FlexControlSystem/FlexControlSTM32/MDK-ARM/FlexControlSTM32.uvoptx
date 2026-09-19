@@ -160,6 +160,11 @@
           <WinNumber>1</WinNumber>
           <ItemText>g_sMotionInfoBuffer</ItemText>
         </Ww>
+        <Ww>
+          <count>2</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>g_sParseData</ItemText>
+        </Ww>
       </WatchWindow1>
       <Tracepoint>
         <THDelay>0</THDelay>
