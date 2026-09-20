@@ -3,7 +3,7 @@
 
 #include "main.h"
 
-#define DEFAULT_VOLTAGE_VALUE		10
+#define DEFAULT_VOLTAGE_VALUE		10.0f
 #define MOTION_INFO_BUFFER_SIZE		16
 
 typedef enum
@@ -31,6 +31,8 @@ void CbMotionFinish(const uint8_t u8Index);
 
 void SendMotorInfo(MotorMotionParams *pParams);
 void SetNormal(const bool bNormal);
+void MotionControlInit(void);
 void MotorControl(void);
+void MotorControlStop(void);
 
 #endif

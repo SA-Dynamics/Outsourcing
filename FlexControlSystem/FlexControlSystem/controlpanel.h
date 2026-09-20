@@ -33,6 +33,7 @@ public:
     void SaveSettings(void);
     void SaveSettings(const QString &qstrFile);
     void LoadSettings(const QString &qstrFile);
+    void NewSettings(const QString &qstrFile);
 
 private:
     Ui::ControlPanel *ui;
@@ -50,6 +51,7 @@ public slots:
 
 signals:
     void sigMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
+    void sigStopMotion();
 
 private slots:
     void on_dspbVoltage_valueChanged(double arg1);

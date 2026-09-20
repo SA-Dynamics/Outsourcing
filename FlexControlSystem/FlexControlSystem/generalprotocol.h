@@ -17,6 +17,9 @@ namespace GeneralProtocolItems
     constexpr uint8_t u8SW_MOTION_CMD = 0x03;
     constexpr uint8_t u8FW_MOTION_RESPOND = 0x04;
 
+    constexpr uint8_t u8SW_MOTION_STOP_CMD = 0x05;
+    constexpr uint8_t u8FW_MOTION_STOP_RESPOND = 0x06;
+
     constexpr uint8_t u8SW_MOTION_UP = 0x01;
     constexpr uint8_t u8SW_MOTION_DOWN = 0x02;
     constexpr uint8_t u8SW_MOTION_LEFT = 0x03;
@@ -46,6 +49,8 @@ public:
                                        QByteArray &qbtRespond) override;
 
     void SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtRespond) override;
+
+    void MotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond) override;
 
 private:
     GeneralProtocol() = default;

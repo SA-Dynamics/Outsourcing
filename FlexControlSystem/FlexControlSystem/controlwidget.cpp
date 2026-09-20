@@ -81,6 +81,7 @@ void ControlWidget::SetConnectSlot(const bool bSet)
     {
         connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
         connect(m_pControlWidget, SIGNAL(sigMotion(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendMotionCommand(QByteArray, QByteArray)));
+        connect(m_pControlWidget, SIGNAL(sigStopMotion()), m_ConnectiveHandler, SLOT(SendStopMotionCommand()));
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigHeartBeatUnnormal, this, [this]() {
             OnConnectiveUnnormal("HeartBeat");
         });
@@ -210,5 +211,12 @@ void ControlWidget::on_pbSaveModeAs_clicked()
 
 void ControlWidget::on_pbNewMode_clicked()
 {
+    QString qstrFileName = QFileDialog::getSaveFileName(
+        this,
+        "新建",
+        QDir::homePath(),                       // 默认目录
+        "配置文件 (*.ini)"
+    );
 
+    m_pModeWidget->NewSettings(qstrFileName);
 }

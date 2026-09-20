@@ -78,7 +78,6 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
         qstrSettingFile = qstrFileName;
     }
 
-//    QString qstrSettingFile = QCoreApplication::applicationDirPath() + "/DefaultConfig.ini";
 
     if (!QFile::exists(qstrSettingFile))
     {
@@ -185,9 +184,11 @@ void ControlPanel::on_pbSendMotion_clicked()
     }
 }
 
+
 void ControlPanel::on_pbSendMotionStop_clicked()
 {
-
+    // 停止所有运动
+    emit sigStopMotion();
 }
 
 
@@ -236,6 +237,23 @@ void ControlPanel::SaveSettings(const QString &qstrFile)
 void ControlPanel::LoadSettings(const QString &qstrFile)
 {
     // 设置当前配置路径
-
     GetSettingParams(qstrFile);
+}
+
+
+void ControlPanel::NewSettings(const QString &qstrFile)
+{
+    if (qstrFile.isEmpty())
+    {
+        return;
+    }
+
+    // 如果目标已存在，先删除
+    if (QFile::exists(qstrFile))
+    {
+        QFile::remove(qstrFile);
+    }
+
+    // 复制
+    QFile::copy(QCoreApplication::applicationDirPath() + "/DefaultConfigRaw.ini", qstrFile);
 }

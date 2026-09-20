@@ -78,8 +78,7 @@ void RS485Handle::SetupConnective(const QString &qstrInfo)
 
 void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
 {
-    m_qvecRecvBuffer.clear();
-
+    // 发送运动指令
     SendCmdStruct sSendStruct;
     sSendStruct.bWait = false;
     sSendStruct.qbtSend = qbtData;
@@ -90,6 +89,22 @@ void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray 
 
     qDebug() << "send motion";
     m_qmapSendBuffer[SendCmdType::MotionCmd].append(sSendStruct);
+}
+
+
+void RS485Handle::SendStopMotionCommand()
+{
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->MotionStopProtocol(qbtData, qbtRespond);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bWait = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond = qbtRespond;
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = 1000;
+    sSendStruct.i64CurrentTime = 0;
 }
 
 

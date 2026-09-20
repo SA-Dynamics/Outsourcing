@@ -369,6 +369,7 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 			SendMotionFinish(*(uint8_t *)pParams);
 			break;
 		
+		
 		default:
 			break;
 	}

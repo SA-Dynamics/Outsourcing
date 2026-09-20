@@ -83,17 +83,17 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     u16Temp = static_cast<uint16_t>(sParams.fVoltage * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
-//    qDebug() << u16Temp;
+
 
     u16Temp = static_cast<uint16_t>(sParams.fFrequency * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
-//    qDebug() << u16Temp;
+
 
     u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
-//    qDebug() << u16Temp;
+
 
     AddCheckSum(qbtSendCmd);
 
@@ -144,3 +144,32 @@ void GeneralProtocol::SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtR
     qbtRespond.append(u8FRAME_TAIL1);
     qbtRespond.append(u8FRAME_TAIL2);
 }
+
+
+void GeneralProtocol::MotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
+{
+    // 上位机发送
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_MOTION_STOP_CMD);
+    qbtCmd.append(uint8_t(0));
+    qbtCmd.append(uint8_t(0xFF));
+    qbtCmd.append(uint8_t(0xFB));
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    // 下位机应答
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_MOTION_STOP_RESPOND);
+    qbtRespond.append(uint8_t(0));
+    qbtRespond.append(uint8_t(0xFF));
+    qbtRespond.append(uint8_t(0xFA));
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+

@@ -47,3 +47,10 @@ void TCPHandle::ReceivedDataHandler(void)
 //        processFrame(frame); // 处理完整帧
 //    }
 }
+
+
+
+void TCPHandle::SendStopMotionCommand()
+{
+
+}

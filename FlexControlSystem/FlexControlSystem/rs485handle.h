@@ -19,7 +19,7 @@ public slots:
 //    void SetConnectiveInfo(const QString &qstrInfo) override;
 //    void SetupConnective(void) override;
     void SendMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) ;
-
+    void SendStopMotionCommand();
 
 private slots:
     void ReceivedDataHandler(void);

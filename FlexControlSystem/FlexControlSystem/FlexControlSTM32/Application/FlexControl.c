@@ -51,6 +51,10 @@ void SerialRecvInfoHandle(void)
 				MotorMotionHandler(&sSerialInfo);
 				break;
 			
+			case INFO_STOP_MOTION:
+				MotorControlStop();
+				break;
+			
 			default:
 				break;
 		}

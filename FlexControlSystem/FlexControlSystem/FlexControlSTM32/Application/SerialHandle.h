@@ -15,6 +15,7 @@ typedef enum
 	INFO_NONE = 0,
 	INFO_HEART,
 	INFO_MOTION,
+	INFO_STOP_MOTION,
 }InfoType;
 
 typedef enum

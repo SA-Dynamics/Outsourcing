@@ -41,6 +41,8 @@ public:
                                        QByteArray &qbtRespond) = 0;
 
     virtual void SWHeartBeatProtocol(QByteArray &qbtHeart, QByteArray &qbtRespond) = 0;
+
+    virtual void MotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond) = 0;
 };
 
 
