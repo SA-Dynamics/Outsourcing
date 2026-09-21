@@ -65,6 +65,7 @@ void SerialRecvInfoHandle(void)
 void FlexControlInit(void)
 {
 	SerialHandleInit();
+	MotionControlInit();
 }
 
 
