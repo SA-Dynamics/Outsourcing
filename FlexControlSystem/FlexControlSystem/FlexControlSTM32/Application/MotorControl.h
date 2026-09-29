@@ -25,9 +25,9 @@ typedef struct
 	float fTimeUse;
 }MotorMotionParams;
 
-// weak, 外部实现
+// weak, 回调由外部实现
 void CbMotionFinish(const uint8_t u8Index);
-
+void CbMotionStopFinish(void);
 
 void SendMotorInfo(MotorMotionParams *pParams);
 void SetNormal(const bool bNormal);

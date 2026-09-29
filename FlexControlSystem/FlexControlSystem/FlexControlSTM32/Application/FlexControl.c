@@ -32,6 +32,12 @@ void CbMotionFinish(const uint8_t u8Index)
 }
 
 
+void CbMotionStopFinish(void)
+{
+	SendSerialRespond(RESPOND_MOTION_STOP, NULL);
+}
+
+
 void SerialRecvInfoHandle(void)
 {
 	static SerialInfo sSerialInfo;
