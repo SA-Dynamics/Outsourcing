@@ -19,8 +19,11 @@ RS485Handle::RS485Handle()
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
 
-    m_pSendDataTimer = new QTimer(this);
-    connect(m_pSendDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendDataTimerTimeout);
+    m_pSendHeartDataTimer = new QTimer(this);
+    connect(m_pSendHeartDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendHeartDataTimerTimeout);
+
+    m_pSendMotionDataTimer = new QTimer(this);
+    connect(m_pSendMotionDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendMotionDataTimerTimeout);
 
     m_pHeartBeatTimer = new QTimer(this);
     connect(m_pHeartBeatTimer, &QTimer::timeout, this, &RS485Handle::OnHeartBeatTimerTimeout);
@@ -33,7 +36,8 @@ RS485Handle::RS485Handle()
 
 RS485Handle::~RS485Handle()
 {
-    m_pSendDataTimer->stop();
+    m_pSendHeartDataTimer->stop();
+    m_pSendMotionDataTimer->stop();
     m_pHeartBeatTimer->stop();
 
     if (m_bConnect)
@@ -66,8 +70,9 @@ void RS485Handle::SetupConnective(const QString &qstrInfo)
 
         m_eParseRecvState = WaitHeader1;
         // 打卡成功才能开启定时发送
-        m_pSendDataTimer->start(10);
+        m_pSendHeartDataTimer->start(10);
         m_pHeartBeatTimer->start(1000);
+        m_pSendMotionDataTimer->start(10);
 
     }
 
@@ -126,6 +131,7 @@ void RS485Handle::RecvMessagePreHandle(void)
         }
     }
 
+    qDebug() << "remove error recv info" << m_qvecRecvBuffer.first();
     m_qvecRecvBuffer.removeFirst();
 }
 
@@ -246,7 +252,7 @@ void RS485Handle::OnHeartBeatTimerTimeout(void)
 
 
 
-void RS485Handle::OnSendDataTimerTimeout(void)
+void RS485Handle::OnSendHeartDataTimerTimeout(void)
 {
     if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty())
     {
@@ -264,7 +270,7 @@ void RS485Handle::OnSendDataTimerTimeout(void)
                     // 如果收到回应, 就删除该组指令
                     if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
                     {
-                        qDebug() << "mcu heart beat received";
+//                        qDebug() << "mcu heart beat received";
                         m_qvecRecvBuffer.removeFirst();
                         m_qmapSendBuffer[SendCmdType::HeartBeat].removeFirst();
                     }
@@ -273,6 +279,7 @@ void RS485Handle::OnSendDataTimerTimeout(void)
             else
             {
                 // 超时处理
+                m_pSendHeartDataTimer->stop();
                 m_bMotionCmdSendAllow = false;
                 m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
                 m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
@@ -285,13 +292,20 @@ void RS485Handle::OnSendDataTimerTimeout(void)
             m_qmapSendBuffer[SendCmdType::HeartBeat].first().bWait = true;
 
             // 发送buffer中的数据
-            qDebug() << "send a heart beat frame";
+//            qDebug() << "send a heart beat frame";
             m_pSerial->write(m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtSend);
             m_bMotionCmdSendAllow = false;
         }
     }
+    else
+    {
+        m_bMotionCmdSendAllow = true;
+    }
+}
 
-//    m_bMotionCmdSendAllow = true;
+
+void RS485Handle::OnSendMotionDataTimerTimeout(void)
+{
     if (m_bMotionCmdSendAllow)
     {
         m_bMotionCmdSendAllow = false;
@@ -305,8 +319,10 @@ void RS485Handle::OnSendDataTimerTimeout(void)
                         m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
                         m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
                 {
+                    //qDebug() << "check motion respond in recv buffer" << m_qvecRecvBuffer;
                     if (!m_qvecRecvBuffer.isEmpty())
                     {
+
                         // 如果收到回应, 就删除该组指令
                         if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
                         {

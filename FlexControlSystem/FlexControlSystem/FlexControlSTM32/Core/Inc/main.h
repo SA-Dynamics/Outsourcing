@@ -57,6 +57,14 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define EnableRightBottum_Pin GPIO_PIN_12
+#define EnableRightBottum_GPIO_Port GPIOB
+#define EnableLeftBottum_Pin GPIO_PIN_13
+#define EnableLeftBottum_GPIO_Port GPIOB
+#define EnableRightTop_Pin GPIO_PIN_14
+#define EnableRightTop_GPIO_Port GPIOB
+#define EnableLeftTop_Pin GPIO_PIN_15
+#define EnableLeftTop_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

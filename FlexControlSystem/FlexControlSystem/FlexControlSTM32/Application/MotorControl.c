@@ -9,6 +9,11 @@
 #define TRAY_MIN_VIBRATION_FREQ			10
 #define MAX_VOLTAGE_VALUE				24.0f
 
+#define ENABLE_LEFT_TOP(bEnable)	(bEnable ? HAL_GPIO_WritePin(EnableLeftTop_GPIO_Port, EnableLeftTop_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableLeftTop_GPIO_Port, EnableLeftTop_Pin, GPIO_PIN_RESET))
+#define ENABLE_RIGHT_TOP(bEnable)	(bEnable ? HAL_GPIO_WritePin(EnableRightTop_GPIO_Port, EnableRightTop_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableRightTop_GPIO_Port, EnableRightTop_Pin, GPIO_PIN_RESET))
+#define ENABLE_LEFT_BOTTUM(bEnable)	(bEnable ? HAL_GPIO_WritePin(EnableLeftBottum_GPIO_Port, EnableLeftBottum_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableLeftBottum_GPIO_Port, EnableLeftBottum_Pin, GPIO_PIN_RESET))
+#define ENABLE_RIGHT_BOTTUM(bEnable)	(bEnable ? HAL_GPIO_WritePin(EnableRightBottum_GPIO_Port, EnableRightBottum_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableRightBottum_GPIO_Port, EnableRightBottum_Pin, GPIO_PIN_RESET))
+
 const uint16_t g_u16SinePositiveHalf[800] =
 {
 0, 18, 35, 53, 71, 88, 106, 124, 141, 159, 177,
@@ -333,6 +338,16 @@ void MotionEndHandler(void)
 {
 	g_sMotionControl.u8FSMStep = 0;
 	g_sMotionControl.pControlFunc = MoveNone;
+	
+	ENABLE_LEFT_TOP(1);
+	ENABLE_RIGHT_TOP(1);
+	ENABLE_LEFT_BOTTUM(1);
+	ENABLE_RIGHT_BOTTUM(1);
+	
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		g_sMotorControl.sMotor[i].u32Index = 0;
+	}
 }
 
 
@@ -535,8 +550,14 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 		g_sMotorControl.sMotor[i].u32Span = (uint32_t)(fPWMCount10HzHalfCycle * 32768.0f / u16PWMCount);
 	}
 	
+	ENABLE_LEFT_TOP(0);
+	ENABLE_RIGHT_TOP(0);
+	ENABLE_LEFT_BOTTUM(0);
+	ENABLE_RIGHT_BOTTUM(0);
+	
 	g_sMotionControl.u8FSMStep = 0;
 	GetMotionFunc(pParams->eMotionIndex);
+	g_sMotionControl.u8Index = pParams->eMotionIndex;
 }
 
 

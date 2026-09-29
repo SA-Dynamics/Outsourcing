@@ -24,7 +24,8 @@ public slots:
 private slots:
     void ReceivedDataHandler(void);
     void OnHeartBeatTimerTimeout(void);
-    void OnSendDataTimerTimeout(void);
+    void OnSendHeartDataTimerTimeout(void);
+    void OnSendMotionDataTimerTimeout(void);
     void OnParseRecvTimeout(void);
 //    void SetConnectiveInfo(const QString &qstrInfo);
     void SetupConnective(const QString &qstrInfo) override;
@@ -33,7 +34,8 @@ private:
     QString m_qstrCurrentPort;
     QSerialPort *m_pSerial;
     QTimer *m_pHeartBeatTimer;
-    QTimer *m_pSendDataTimer;
+    QTimer *m_pSendHeartDataTimer;
+    QTimer *m_pSendMotionDataTimer;
     QTimer *m_pParseRecvTimer;
 
     enum ParseState { WaitHeader1, WaitHeader2, WaitCmd, WaitLength, WaitData, WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2};
