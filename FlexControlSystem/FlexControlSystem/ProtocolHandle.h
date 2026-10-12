@@ -15,6 +15,9 @@ namespace GeneralMotion
             MotionRight,
             MotionGather,
             MotionHCentered,
+            MotionVCentered,
+            MotionDisperse,
+            MotionFlip,
         };
 
         MotionIndex eIndex;

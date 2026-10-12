@@ -31,14 +31,29 @@ uint8_t GeneralProtocol::GetMotionIndexCmd(const GeneralMotion::MotionParams::Mo
         case GeneralMotion::MotionParams::MotionIndex::MotionLeft:
             u8Value = 3;
             break;
+
         case GeneralMotion::MotionParams::MotionIndex::MotionRight:
             u8Value = 4;
             break;
+
         case GeneralMotion::MotionParams::MotionIndex::MotionGather:
             u8Value = 5;
             break;
+
         case GeneralMotion::MotionParams::MotionIndex::MotionHCentered:
             u8Value = 6;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionVCentered:
+            u8Value = 7;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionDisperse:
+            u8Value = 8;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionFlip:
+            u8Value = 9;
             break;
 
         default:
