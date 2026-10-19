@@ -110,7 +110,7 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     }
 }
 
-
+// 处理不同按钮click时的事务
 void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
 {
     for (const ButtonParams &Button : m_lstMotionButtons)
@@ -126,6 +126,14 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
         }
     }
 }
+
+
+void ControlPanel::OnMotionFinished(void)
+{
+    ui->pbSendMotion->setEnabled(true);
+
+}
+
 
 void ControlPanel::on_dspbVoltage_valueChanged(double arg1)
 {

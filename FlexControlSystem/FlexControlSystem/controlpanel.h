@@ -48,6 +48,7 @@ private:
 
 public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);
+    void OnMotionFinished(void);
 
 signals:
     void sigMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
