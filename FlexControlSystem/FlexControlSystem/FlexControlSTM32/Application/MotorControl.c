@@ -464,7 +464,7 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 				else
 				{
 					g_sMotorControl.sMotor[i].u16Duty = -s16DutyHandler;
-					if (g_sMotorControl.sMotor[i].pActivePolarity != &g_sMotorControl.sMotor[i].sPolarityP)
+					if (g_sMotorControl.sMotor[i].pActivePolarity != &g_sMotorControl.sMotor[i].sPolarityN)
 					{
 						HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
 						__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 0);
@@ -657,10 +657,16 @@ static void MoveTest(void)
 	}
 }
 
+uint32_t u32MoveOffset0 = 0;
+uint32_t u32MoveOffset1 = 0;
+uint32_t u32MoveOffset2 = 0;
+uint32_t u32MoveOffset3 = 0;
 
-uint32_t u32UpOffsetTest = 400;
+
+uint32_t u32UpOffsetTest = 600;
 // 向上运动
-static bool MoveUpMode(void)
+static bool MoveDownMode(void)
+//static bool MoveUpMode(void)
 {		
 	bool bRet = false;
 	
@@ -680,14 +686,18 @@ static bool MoveUpMode(void)
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
+			u32MoveOffset0 = 0;
+			u32MoveOffset3 = 0;
+//			u32MoveOffset1 = 500;
+//			u32MoveOffset2 = 150;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
-		
-			// 超前相位
-			g_sMotorControl.sMotor[1].u32Index = u32UpOffsetTest * 32768;
-			g_sMotorControl.sMotor[2].u32Index = u32UpOffsetTest * 32768;
+			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
@@ -841,9 +851,13 @@ static bool MoveUpMode(void)
 	return bRet;
 }
 
-uint32_t u32DownOffsetTest = 400;
+uint32_t u32DownOffsetTest = 600;
+
+
+
 // 向下运动
-static bool MoveDownMode(void)
+static bool MoveUpMode(void)
+//static bool MoveDownMode(void)
 {
 	bool bRet = false;
 	
@@ -862,12 +876,18 @@ static bool MoveDownMode(void)
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
+			u32MoveOffset0 = 300;
+			u32MoveOffset3 = 500;
+			u32MoveOffset1 = 0;
+			u32MoveOffset2 = 0;
 			break;
 		
 		case INIT_MOTION:	
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
-			g_sMotorControl.sMotor[0].u32Index = u32DownOffsetTest * 32768;
-			g_sMotorControl.sMotor[3].u32Index = u32DownOffsetTest * 32768;
+			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
@@ -1024,7 +1044,8 @@ static bool MoveDownMode(void)
 
 uint32_t u32LeftOffsetTest = 400;
 // 向左运动
-static bool MoveLeftMode(void)
+static bool MoveRightMode(void)
+//static bool MoveLeftMode(void)
 {
 	bool bRet = false;
 	
@@ -1202,7 +1223,8 @@ static bool MoveLeftMode(void)
 
 uint32_t u32RightOffsetTest = 400;
 // 向右运动
-static bool MoveRightMode(void)
+static bool MoveLeftMode(void)
+//static bool MoveRightMode(void)
 {
 	bool bRet = false;
 	
