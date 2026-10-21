@@ -26,7 +26,7 @@ public:
         QPushButton *pButton;
         QString qstrName;
         GeneralMotion::MotionParams::MotionIndex eMotion;
-        QList<QMap<QString, float>> qlstMotionParams;
+        QList<QMap<QString, QVariant>> qlstMotionParams;
     };
 
     void SetReadOnly(const bool bReadOnly);
@@ -46,6 +46,9 @@ private:
     ProtocolHandle *m_pProtocol;
     QString m_qstrCurrentSettingPath;
 
+    void SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle);
+    int16_t ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue);
+
 public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);
     void OnMotionFinished(void);
@@ -60,6 +63,8 @@ private slots:
     void on_dspbTime_valueChanged(double arg1);
     void on_pbSendMotion_clicked();
     void on_pbSendMotionStop_clicked();
+    void on_dialAngleRegulation_valueChanged(int value);
+    void on_hsldSpeed_valueChanged(int value);
 };
 
 #endif // CONTROLPANEL_H

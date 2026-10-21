@@ -14,6 +14,8 @@ ControlPanel::ControlPanel(QWidget *parent) :
 
     ui->setupUi(parent);
 
+    ui->dialAngleRegulation->setTracking(true);
+
     // 按钮分组
     m_pMotionGroup = new QButtonGroup();
     m_pMotionGroup->setExclusive(true);
@@ -35,6 +37,7 @@ ControlPanel::ControlPanel(QWidget *parent) :
         {ui->pbFlip, "MotionFlip", GeneralMotion::MotionParams::MotionIndex::MotionFlip, {}},
     };
 
+    //ui->leAngle->setValidator(new QIntValidator(-90, 90, this));
 
     GetSettingParams("");
 
@@ -51,6 +54,9 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->dspbFrequency, SIGNAL(valueChanged(double)), this, SLOT(on_dspbFrequency_valueChanged(double)));
     connect(ui->dspbTime, SIGNAL(valueChanged(double)), this, SLOT(on_dspbTime_valueChanged(double)));
     connect(ui->pbSendMotion, SIGNAL(clicked()), this, SLOT(on_pbSendMotion_clicked()));
+
+    connect(ui->dialAngleRegulation, &QDial::valueChanged, this, &ControlPanel::on_dialAngleRegulation_valueChanged);
+    connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
 }
 
 ControlPanel::~ControlPanel()
@@ -68,7 +74,7 @@ void ControlPanel::SetReadOnly(const bool bReadOnly)
     }
 }
 
-
+// 获取配置参数
 void ControlPanel::GetSettingParams(const QString &qstrFileName)
 {
     QString qstrSettingFile;
@@ -103,12 +109,52 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
                 {"frequency", Settings.value("frequency").toFloat()},
                 {"timeuse", Settings.value("timeuse").toFloat()},
                 {"voltage", Settings.value("voltage").toFloat()},
+                {"angle_offset", Settings.value("angle_offset").toInt()},
+                {"speed", Settings.value("speed").toInt()},
             },
         };
 
         Settings.endGroup();
     }
 }
+
+
+void ControlPanel::SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle)
+{
+    int16_t s16OriginDirection = 0;
+
+    switch (eIndex)
+    {
+        case GeneralMotion::MotionParams::MotionIndex::MotionUp:
+            s16OriginDirection = 180;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionDown:
+            s16OriginDirection = 0;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionLeft:
+            s16OriginDirection = 270;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionRight:
+            s16OriginDirection = 90;
+            break;
+
+        default:
+            break;
+    }
+
+    if ((s16OriginDirection + s16Angle) >= 0)
+    {
+        ui->dialAngleRegulation->setValue(s16OriginDirection + s16Angle);
+    }
+    else
+    {
+        ui->dialAngleRegulation->setValue(s16OriginDirection + s16Angle + 360);
+    }
+}
+
 
 // 处理不同按钮click时的事务
 void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
@@ -120,9 +166,13 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
             m_qstrCurrentMotionButton = Button.qstrName;
 
             // 将当前按钮的运动参数更新到界面上
-            ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage"));
-            ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency"));
-            ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse"));
+            ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
+            ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
+            ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+
+            ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
+            ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
+            SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
         }
     }
 }
@@ -184,9 +234,9 @@ void ControlPanel::on_pbSendMotion_clicked()
 
             GeneralMotion::MotionParams sParams;
             sParams.eIndex = Button.eMotion;
-            sParams.fVoltage = Button.qlstMotionParams.first().value("voltage");
-            sParams.fFrequency = Button.qlstMotionParams.first().value("frequency");
-            sParams.fTimeUse = Button.qlstMotionParams.first().value("timeuse");
+            sParams.fVoltage = Button.qlstMotionParams.first().value("voltage").toFloat();
+            sParams.fFrequency = Button.qlstMotionParams.first().value("frequency").toFloat();
+            sParams.fTimeUse = Button.qlstMotionParams.first().value("timeuse").toFloat();
 
             m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
 
@@ -217,6 +267,9 @@ void ControlPanel::SaveSettings(void)
         Settings.setValue("frequency", Button.qlstMotionParams.first().value("frequency"));
         Settings.setValue("timeuse", Button.qlstMotionParams.first().value("timeuse"));
         Settings.setValue("voltage", Button.qlstMotionParams.first().value("voltage"));
+
+        Settings.setValue("angle_offset", Button.qlstMotionParams.first().value("angle_offset"));
+        Settings.setValue("speed", Button.qlstMotionParams.first().value("speed"));
 
         Settings.endGroup();
     }
@@ -267,4 +320,54 @@ void ControlPanel::NewSettings(const QString &qstrFile)
 
     // 复制
     QFile::copy(QCoreApplication::applicationDirPath() + "/DefaultConfigRaw.ini", qstrFile);
+}
+
+
+int16_t ControlPanel::ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue)
+{
+    int16_t s16OriginDirection = 0;
+
+    switch (eIndex)
+    {
+        case GeneralMotion::MotionParams::MotionIndex::MotionUp:
+            s16OriginDirection = 180;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionDown:
+            s16OriginDirection = 0;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionLeft:
+            s16OriginDirection = 270;
+            break;
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionRight:
+            s16OriginDirection = 90;
+            break;
+
+        default:
+            break;
+    }
+
+    return (s16DialValue - s16OriginDirection);
+}
+
+void ControlPanel::on_dialAngleRegulation_valueChanged(int value)
+{
+    qDebug() << value;
+    for (ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (m_qstrCurrentMotionButton == Button.qstrName)
+        {
+            int16_t s16DialValue = ChangeDialDirection(Button.eMotion, value);
+            Button.qlstMotionParams.first()["angle_offset"] = s16DialValue;
+            ui->leAngle->setText(QString::number(s16DialValue));
+        }
+    }
+}
+
+
+void ControlPanel::on_hsldSpeed_valueChanged(int value)
+{
+    qDebug() << value;
 }

@@ -21,6 +21,12 @@ ControlWidget::ControlWidget(QWidget *parent)
 
     ui->tabControl->setEnabled(false);
 
+    ui->pbOpenMode->setEnabled(false);
+    ui->pbSaveMode->setEnabled(false);
+    ui->pbSaveModeAs->setEnabled(false);
+    ui->pbNewMode->setEnabled(false);
+    ui->pbMode2Control->setEnabled(false);
+
 
     QRegularExpression Regex("^[0-9.]+$");
     QRegularExpressionValidator *Validator = new QRegularExpressionValidator(Regex, this);
@@ -219,4 +225,28 @@ void ControlWidget::on_pbNewMode_clicked()
     );
 
     m_pModeWidget->NewSettings(qstrFileName);
+}
+
+void ControlWidget::on_tabPanel_currentChanged(int index)
+{
+    qDebug() << index;
+
+    if (0 == index)
+    {
+        ui->pbOpenMode->setEnabled(false);
+        ui->pbSaveMode->setEnabled(false);
+        ui->pbSaveModeAs->setEnabled(false);
+        ui->pbNewMode->setEnabled(false);
+        ui->pbMode2Control->setEnabled(false);
+        ui->pbControl2Mode->setEnabled(true);
+    }
+    else
+    {
+        ui->pbOpenMode->setEnabled(true);
+        ui->pbSaveMode->setEnabled(true);
+        ui->pbSaveModeAs->setEnabled(true);
+        ui->pbNewMode->setEnabled(true);
+        ui->pbMode2Control->setEnabled(true);
+        ui->pbControl2Mode->setEnabled(false);
+    }
 }

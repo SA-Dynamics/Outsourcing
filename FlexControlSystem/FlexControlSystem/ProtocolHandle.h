@@ -24,6 +24,8 @@ namespace GeneralMotion
         float fVoltage;
         float fFrequency;
         float fTimeUse;
+        int16_t s16AngleOffset;
+        uint8_t u8SpeedCoeff;
     };
 }
 

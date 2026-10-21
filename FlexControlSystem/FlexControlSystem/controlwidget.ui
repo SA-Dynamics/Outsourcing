@@ -267,10 +267,10 @@
                  </property>
                 </widget>
                </item>
-               <item row="0" column="2">
-                <widget class="QPushButton" name="pbSaveModeAs">
+               <item row="0" column="5">
+                <widget class="QPushButton" name="pbControl2Mode">
                  <property name="text">
-                  <string>模式另存为</string>
+                  <string>控制板数据-&gt;模式数据</string>
                  </property>
                 </widget>
                </item>
@@ -278,13 +278,6 @@
                 <widget class="QPushButton" name="pbOpenMode">
                  <property name="text">
                   <string>打开模式</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="QPushButton" name="pbSaveMode">
-                 <property name="text">
-                  <string>保存模式</string>
                  </property>
                 </widget>
                </item>
@@ -300,6 +293,27 @@
                   </size>
                  </property>
                 </spacer>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="pbSaveMode">
+                 <property name="text">
+                  <string>保存模式</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="2">
+                <widget class="QPushButton" name="pbSaveModeAs">
+                 <property name="text">
+                  <string>模式另存为</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="6">
+                <widget class="QPushButton" name="pbMode2Control">
+                 <property name="text">
+                  <string>模式数据-&gt;控制板数据</string>
+                 </property>
+                </widget>
                </item>
               </layout>
              </item>
