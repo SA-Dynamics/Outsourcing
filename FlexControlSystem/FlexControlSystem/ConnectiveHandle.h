@@ -27,6 +27,7 @@ signals:
     void sigConnectiveState(const bool &bState);
     void sigHeartBeatUnnormal();
     void sigMotionRespondUnnormal();
+    void sigMotionTerminate();
 };
 
 #endif // CONNECTIVEHANDLE_H

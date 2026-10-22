@@ -91,7 +91,7 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
 
     qbtSendCmd.append(u8SW_MOTION_CMD);
 
-    qbtSendCmd.append(0x7);
+    qbtSendCmd.append(0xB);
     qbtSendCmd.append(GetMotionIndexCmd(sParams.eIndex));
 
     uint16_t u16Temp = 0;
@@ -106,6 +106,14 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
 
 
     u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+
+    qbtSendCmd.append(static_cast<uint8_t>(sParams.s16AngleOffset >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(sParams.s16AngleOffset & 0xFF));
+
+    u16Temp = static_cast<uint16_t>(sParams.u8SpeedCoeff * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
 

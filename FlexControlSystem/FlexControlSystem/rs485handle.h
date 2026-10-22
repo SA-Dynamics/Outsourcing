@@ -7,6 +7,8 @@
 #include <QTimer>
 #include "generalprotocol.h"
 #include <QMap>
+#include <QMutex>
+#include <QMutexLocker>
 
 class RS485Handle : public ConnectiveHandle
 {
@@ -39,11 +41,11 @@ private:
     QTimer *m_pParseRecvTimer;
 
     enum ParseState { WaitHeader1, WaitHeader2, WaitCmd, WaitLength, WaitData, WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2};
-    enum class SendCmdType {HeartBeat, MotionCmd, UnknownCmd};
+    enum class SendCmdType {HeartBeat, MotionCmd, StopMotion, UnknownCmd};
 
     struct SendCmdStruct
     {
-        bool bWait;
+        bool bRespond;
         uint32_t u32ExpectedRespondTimeThresh;
         qint64 i64StartTime;
         qint64 i64CurrentTime;
@@ -62,7 +64,9 @@ private:
 
     bool m_bMotionCmdSendAllow;
 
-    void RecvMessagePreHandle(void);
+    void RecvMessageHandle(void);
+
+    QMutex m_Mutex;
 };
 
 #endif // RS485HANDLE_H

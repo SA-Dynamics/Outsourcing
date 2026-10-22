@@ -57,6 +57,13 @@ ControlPanel::ControlPanel(QWidget *parent) :
 
     connect(ui->dialAngleRegulation, &QDial::valueChanged, this, &ControlPanel::on_dialAngleRegulation_valueChanged);
     connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
+
+    connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
+        ui->pbSendMotion->setEnabled(true);
+        ui->pbSendMotionStop->setEnabled(false);
+    });
+
+    ui->pbSendMotionStop->setEnabled(false);
 }
 
 ControlPanel::~ControlPanel()
@@ -237,10 +244,15 @@ void ControlPanel::on_pbSendMotion_clicked()
             sParams.fVoltage = Button.qlstMotionParams.first().value("voltage").toFloat();
             sParams.fFrequency = Button.qlstMotionParams.first().value("frequency").toFloat();
             sParams.fTimeUse = Button.qlstMotionParams.first().value("timeuse").toFloat();
+            sParams.s16AngleOffset = Button.qlstMotionParams.first().value("angle_offset").toInt();
+            sParams.u8SpeedCoeff = Button.qlstMotionParams.first().value("speed").toInt();
 
             m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
 
             emit sigMotion(qbtData, qbtRespond);
+
+            ui->pbSendMotion->setEnabled(false);
+            ui->pbSendMotionStop->setEnabled(true);
         }
     }
 }
@@ -370,4 +382,34 @@ void ControlPanel::on_dialAngleRegulation_valueChanged(int value)
 void ControlPanel::on_hsldSpeed_valueChanged(int value)
 {
     qDebug() << value;
+    for (ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (m_qstrCurrentMotionButton == Button.qstrName)
+        {
+            Button.qlstMotionParams.first()["speed"] = value;
+        }
+    }
+}
+
+
+void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
+{
+    if (this == pOther || pOther == nullptr)
+    {
+        return;
+    }
+
+    m_lstMotionButtons = pOther->m_lstMotionButtons;
+
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        // 将当前按钮的运动参数更新到界面上
+        ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
+        ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
+        ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+
+        ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
+        ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
+        SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
+    }
 }

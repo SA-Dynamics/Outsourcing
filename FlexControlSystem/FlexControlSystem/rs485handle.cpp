@@ -1,6 +1,7 @@
 #include "rs485handle.h"
 #include <QDebug>
 #include <QDateTime>
+#include <QtConcurrent/QtConcurrentRun>
 
 RS485Handle::RS485Handle()
 {
@@ -15,15 +16,16 @@ RS485Handle::RS485Handle()
     {
         {SendCmdType::HeartBeat, {}},
         {SendCmdType::MotionCmd, {}},
+        {SendCmdType::StopMotion, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
 
-    m_pSendHeartDataTimer = new QTimer(this);
-    connect(m_pSendHeartDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendHeartDataTimerTimeout);
+//    m_pSendHeartDataTimer = new QTimer(this);
+//    connect(m_pSendHeartDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendHeartDataTimerTimeout);
 
-    m_pSendMotionDataTimer = new QTimer(this);
-    connect(m_pSendMotionDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendMotionDataTimerTimeout);
+//    m_pSendMotionDataTimer = new QTimer(this);
+//    connect(m_pSendMotionDataTimer, &QTimer::timeout, this, &RS485Handle::OnSendMotionDataTimerTimeout);
 
     m_pHeartBeatTimer = new QTimer(this);
     connect(m_pHeartBeatTimer, &QTimer::timeout, this, &RS485Handle::OnHeartBeatTimerTimeout);
@@ -70,7 +72,7 @@ void RS485Handle::SetupConnective(const QString &qstrInfo)
 
         m_eParseRecvState = WaitHeader1;
         // 打卡成功才能开启定时发送
-        m_pSendHeartDataTimer->start(10);
+        //m_pSendHeartDataTimer->start(10);
         m_pHeartBeatTimer->start(1000);
         m_pSendMotionDataTimer->start(10);
 
@@ -85,15 +87,50 @@ void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray 
 {
     // 发送运动指令
     SendCmdStruct sSendStruct;
-    sSendStruct.bWait = false;
+    sSendStruct.bRespond = false;
     sSendStruct.qbtSend = qbtData;
     sSendStruct.qbtRespond = qbtRespond;
     sSendStruct.i64StartTime = 0;
+
+    // 运动指令加2s的超时冗余
     sSendStruct.u32ExpectedRespondTimeThresh = (static_cast<uint16_t>(qbtData[9] << 8) | qbtData[10]) * 100 + 2000;
     sSendStruct.i64CurrentTime = 0;
 
     qDebug() << "send motion";
     m_qmapSendBuffer[SendCmdType::MotionCmd].append(sSendStruct);
+    m_pSerial->write(m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtSend);
+
+
+    QtConcurrent::run([this]()
+    {
+        for (int i = 0; i < 200; i++)
+        {
+            m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+
+            if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime -
+                    m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
+                    m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
+            {
+                QMutexLocker Locker(&m_Mutex);
+                if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().bRespond)
+                {
+                    m_qmapSendBuffer[SendCmdType::MotionCmd].removeFirst();
+                    break;
+                }
+                else
+                {
+                    QThread::msleep(10);
+                }
+            }
+            else
+            {
+                // 超时
+                m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+                emit sigMotionRespondUnnormal();
+                break;
+            }
+        }
+    });
 }
 
 
@@ -104,35 +141,76 @@ void RS485Handle::SendStopMotionCommand()
     m_pProtocol->MotionStopProtocol(qbtData, qbtRespond);
 
     SendCmdStruct sSendStruct;
-    sSendStruct.bWait = false;
+    sSendStruct.bRespond = false;
     sSendStruct.qbtSend = qbtData;
     sSendStruct.qbtRespond = qbtRespond;
     sSendStruct.i64StartTime = 0;
     sSendStruct.u32ExpectedRespondTimeThresh = 1000;
     sSendStruct.i64CurrentTime = 0;
+
+    qDebug() << "send stop motion";
+    m_qmapSendBuffer[SendCmdType::StopMotion].append(sSendStruct);
+
+    m_pSerial->write(m_qmapSendBuffer[SendCmdType::StopMotion].first().qbtSend);
+
+
+    QtConcurrent::run([this]()
+    {
+        for (int i = 0; i < 200; i++)
+        {
+            m_qmapSendBuffer[SendCmdType::StopMotion].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+
+            if (m_qmapSendBuffer[SendCmdType::StopMotion].first().i64CurrentTime -
+                    m_qmapSendBuffer[SendCmdType::StopMotion].first().i64StartTime <
+                    m_qmapSendBuffer[SendCmdType::StopMotion].first().u32ExpectedRespondTimeThresh)
+            {
+                QMutexLocker Locker(&m_Mutex);
+                if (m_qmapSendBuffer[SendCmdType::StopMotion].first().bRespond)
+                {
+                    m_qmapSendBuffer[SendCmdType::StopMotion].removeFirst();
+                    break;
+                }
+                else
+                {
+                    QThread::msleep(10);
+                }
+            }
+            else
+            {
+                // 超时
+                m_qmapSendBuffer[SendCmdType::StopMotion].clear();
+                emit sigMotionRespondUnnormal();
+                break;
+            }
+        }
+    });
 }
 
 
-void RS485Handle::RecvMessagePreHandle(void)
+void RS485Handle::RecvMessageHandle(void)
 {
-    if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty())
-    {
-        if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
-        {
-            return;
-        }
-    }
+    QMutexLocker Locker(&m_Mutex);
 
-    if (!m_qmapSendBuffer[SendCmdType::MotionCmd].isEmpty())
+    if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty() &&
+        m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
     {
-        if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
-        {
-            return;
-        }
+        m_qmapSendBuffer[SendCmdType::HeartBeat].first().bRespond = true;
     }
-
-    qDebug() << "remove error recv info" << m_qvecRecvBuffer.first();
-    m_qvecRecvBuffer.removeFirst();
+    else if (!m_qmapSendBuffer[SendCmdType::MotionCmd].isEmpty() &&
+             m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::MotionCmd].first().bRespond = true;
+    }
+    else if (!m_qmapSendBuffer[SendCmdType::StopMotion].isEmpty() &&
+             m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::StopMotion].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::StopMotion].first().bRespond = true;
+    }
+    else
+    {
+        qDebug() << "remove error recv info" << m_qvecRecvBuffer.first();
+        m_qvecRecvBuffer.removeFirst();
+    }
 }
 
 
@@ -217,7 +295,7 @@ void RS485Handle::ReceivedDataHandler(void)
                     m_pParseRecvTimer->stop();
                     m_qbtRecvData.append(u8Byte);
                     m_qvecRecvBuffer.append(m_qbtRecvData);
-                    RecvMessagePreHandle();
+                    RecvMessageHandle();
                     m_eParseRecvState = WaitHeader1;
                     qDebug() << "total data" << m_qvecRecvBuffer;
                 }
@@ -232,126 +310,211 @@ void RS485Handle::ReceivedDataHandler(void)
 
 void RS485Handle::OnHeartBeatTimerTimeout(void)
 {
-    // 获取心跳数据协议，发送心跳
-    QByteArray qbtData;
-    QByteArray qbtRespond;
-    m_pProtocol->SWHeartBeatProtocol(qbtData, qbtRespond);
-
-    SendCmdStruct sSendStruct;
-    sSendStruct.bWait = false;
-    sSendStruct.qbtSend = qbtData;
-    sSendStruct.qbtRespond = qbtRespond;
-    sSendStruct.i64StartTime = 0;
-    sSendStruct.u32ExpectedRespondTimeThresh = 1000;
-    sSendStruct.i64CurrentTime = 0;
-
-    m_qmapSendBuffer[SendCmdType::HeartBeat].append(sSendStruct);
-}
-
-
-
-
-
-void RS485Handle::OnSendHeartDataTimerTimeout(void)
-{
-    if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty())
+    if (m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty())
     {
-        if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().bWait)
-        {
-            m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
-            if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime -
-                    m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime <
-                    m_qmapSendBuffer[SendCmdType::HeartBeat].first().u32ExpectedRespondTimeThresh)
-            {
-                m_bMotionCmdSendAllow = true;
+        // 获取心跳数据协议，发送心跳
+        QByteArray qbtData;
+        QByteArray qbtRespond;
+        m_pProtocol->SWHeartBeatProtocol(qbtData, qbtRespond);
 
-                if (!m_qvecRecvBuffer.isEmpty())
+        SendCmdStruct sSendStruct;
+        sSendStruct.bRespond = false;
+        sSendStruct.qbtSend = qbtData;
+        sSendStruct.qbtRespond = qbtRespond;
+        sSendStruct.i64StartTime = 0;
+        sSendStruct.u32ExpectedRespondTimeThresh = 1000;
+        sSendStruct.i64CurrentTime = 0;
+
+        m_qmapSendBuffer[SendCmdType::HeartBeat].append(sSendStruct);
+        m_pSerial->write(m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtSend);
+
+
+        QtConcurrent::run([this]()
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+
+                if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime -
+                        m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime <
+                        m_qmapSendBuffer[SendCmdType::HeartBeat].first().u32ExpectedRespondTimeThresh)
                 {
-                    // 如果收到回应, 就删除该组指令
-                    if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
+                    QMutexLocker Locker(&m_Mutex);
+                    if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().bRespond)
                     {
-//                        qDebug() << "mcu heart beat received";
-                        m_qvecRecvBuffer.removeFirst();
                         m_qmapSendBuffer[SendCmdType::HeartBeat].removeFirst();
+                        break;
                     }
-                }
-            }
-            else
-            {
-                // 超时处理
-                m_pSendHeartDataTimer->stop();
-                m_bMotionCmdSendAllow = false;
-                m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
-                m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
-                emit sigHeartBeatUnnormal();
-            }
-        }
-        else
-        {
-            m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
-            m_qmapSendBuffer[SendCmdType::HeartBeat].first().bWait = true;
-
-            // 发送buffer中的数据
-//            qDebug() << "send a heart beat frame";
-            m_pSerial->write(m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtSend);
-            m_bMotionCmdSendAllow = false;
-        }
-    }
-    else
-    {
-        m_bMotionCmdSendAllow = true;
-    }
-}
-
-
-void RS485Handle::OnSendMotionDataTimerTimeout(void)
-{
-    if (m_bMotionCmdSendAllow)
-    {
-        m_bMotionCmdSendAllow = false;
-
-        if (!m_qmapSendBuffer[SendCmdType::MotionCmd].isEmpty())
-        {
-            if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait)
-            {
-                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
-                if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime -
-                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
-                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
-                {
-                    //qDebug() << "check motion respond in recv buffer" << m_qvecRecvBuffer;
-                    if (!m_qvecRecvBuffer.isEmpty())
+                    else
                     {
-
-                        // 如果收到回应, 就删除该组指令
-                        if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
-                        {
-                            qDebug() << "mcu motion respond received";
-                            m_qvecRecvBuffer.removeFirst();
-                            m_qmapSendBuffer[SendCmdType::MotionCmd].removeFirst();
-                        }
+                        QThread::msleep(10);
                     }
                 }
                 else
                 {
-                    // 超时处理
+                    // 超时
                     m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
                     m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
-                    emit sigMotionRespondUnnormal();
+                    emit sigHeartBeatUnnormal();
+                    break;
                 }
             }
-            else
-            {
-                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
-                m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait = true;
-
-                // 发送buffer中的数据
-                qDebug() << "send a motion data frame";
-                m_pSerial->write(m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtSend);
-            }
-        }
+        });
     }
 }
+
+
+
+
+
+//void RS485Handle::OnSendHeartDataTimerTimeout(void)
+//{
+//    if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty())
+//    {
+//        if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().bWait)
+//        {
+//            // 当前是在等待回应
+//            m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+//            if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime -
+//                    m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime <
+//                    m_qmapSendBuffer[SendCmdType::HeartBeat].first().u32ExpectedRespondTimeThresh)
+//            {
+//                m_bMotionCmdSendAllow = true;
+
+//                if (!m_qvecRecvBuffer.isEmpty())
+//                {
+//                    // 如果收到回应, 就删除该组指令
+//                    if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
+//                    {
+////                        qDebug() << "mcu heart beat received";
+//                        m_qvecRecvBuffer.removeFirst();
+//                        m_qmapSendBuffer[SendCmdType::HeartBeat].removeFirst();
+//                    }
+//                }
+//            }
+//            else
+//            {
+//                // 超时处理
+//                m_pSendHeartDataTimer->stop();
+//                m_bMotionCmdSendAllow = false;
+//                m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+//                emit sigHeartBeatUnnormal();
+//            }
+//        }
+//        else
+//        {
+//            m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
+//            m_qmapSendBuffer[SendCmdType::HeartBeat].first().bWait = true;
+
+//            // 发送buffer中的数据
+//            m_pSerial->write(m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtSend);
+//            m_bMotionCmdSendAllow = false;
+//        }
+//    }
+//    else
+//    {
+//        m_bMotionCmdSendAllow = true;
+//    }
+//}
+
+
+//void RS485Handle::OnSendMotionDataTimerTimeout(void)
+//{
+//    if (m_bMotionCmdSendAllow)
+//    {
+//        m_bMotionCmdSendAllow = false;
+
+//        if (!m_qmapSendBuffer[SendCmdType::MotionCmd].isEmpty())
+//        {
+//            if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait)
+//            {
+//                // 当前是在等待回应
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+//                if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime -
+//                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
+//                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
+//                {
+//                    //qDebug() << "check motion respond in recv buffer" << m_qvecRecvBuffer;
+//                    if (!m_qvecRecvBuffer.isEmpty())
+//                    {
+
+//                        // 如果收到回应, 就删除该组指令
+//                        if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
+//                        {
+//                            qDebug() << "mcu motion respond received";
+//                            m_qvecRecvBuffer.removeFirst();
+//                            m_qmapSendBuffer[SendCmdType::MotionCmd].removeFirst();
+//                            emit sigMotionTerminate();
+//                        }
+//                    }
+//                }
+//                else
+//                {
+//                    // 超时处理
+//                    m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
+//                    m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+//                    emit sigMotionRespondUnnormal();
+//                }
+//            }
+//            else
+//            {
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait = true;
+
+//                // 发送buffer中的数据
+//                qDebug() << "send a motion data frame";
+//                m_pSerial->write(m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtSend);
+//            }
+//        }
+
+//        if (!m_qmapSendBuffer[SendCmdType::StopMotion].isEmpty())
+//        {
+//            // 清空发送队列
+//            m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+
+//            if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait)
+//            {
+//                // 当前是在等待回应
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+//                if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime -
+//                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
+//                        m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
+//                {
+//                    //qDebug() << "check motion respond in recv buffer" << m_qvecRecvBuffer;
+//                    if (!m_qvecRecvBuffer.isEmpty())
+//                    {
+
+//                        // 如果收到回应, 就删除该组指令
+//                        if (m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
+//                        {
+//                            qDebug() << "mcu motion respond received";
+//                            m_qvecRecvBuffer.removeFirst();
+//                            m_qmapSendBuffer[SendCmdType::MotionCmd].removeFirst();
+//                            emit sigMotionTerminate();
+//                        }
+//                    }
+//                }
+//                else
+//                {
+//                    // 超时处理
+//                    m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
+//                    m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+//                    emit sigMotionRespondUnnormal();
+//                }
+//            }
+//            else
+//            {
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
+//                m_qmapSendBuffer[SendCmdType::MotionCmd].first().bWait = true;
+
+//                // 发送buffer中的数据
+//                qDebug() << "send a motion data frame";
+//                m_pSerial->write(m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtSend);
+//            }
+//        }
+//    }
+//}
 
 
 void RS485Handle::OnParseRecvTimeout(void)

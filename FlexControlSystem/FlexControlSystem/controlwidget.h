@@ -55,6 +55,10 @@ private slots:
 
     void on_tabPanel_currentChanged(int index);
 
+    void on_pbControl2Mode_clicked();
+
+    void on_pbMode2Control_clicked();
+
 private:
     Ui::ControlWidget *ui;
     ConnectiveHandle *m_ConnectiveHandler;

@@ -1950,6 +1950,26 @@ void MotorControlStop(void)
 	g_sMotionControl.pControlFunc = MoveNone;
 	
 	// 将运动序列中的所有运动清除
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
+	
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
+	
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
+
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+	
 	ClearMotorInfo();
 	
 	CbMotionStopFinish();

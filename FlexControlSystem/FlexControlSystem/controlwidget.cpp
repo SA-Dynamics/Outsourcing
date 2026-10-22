@@ -94,6 +94,10 @@ void ControlWidget::SetConnectSlot(const bool bSet)
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigMotionRespondUnnormal, this, [this]() {
             OnConnectiveUnnormal("MotionRespond");
         });
+
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigMotionTerminate, this, [this]() {
+            emit m_pControlWidget->sigMotionTerminate();
+        });
     }
     else
     {
@@ -123,6 +127,8 @@ void ControlWidget::OnConnectiveUnnormal(const QString &qstrName)
     {
         QMessageBox::critical(this, "错误", "动作反馈超时");
     }
+
+    emit m_pControlWidget->sigMotionTerminate();
 }
 
 
@@ -200,7 +206,22 @@ void ControlWidget::on_pbOpenMode_clicked()
 
 void ControlWidget::on_pbSaveMode_clicked()
 {
-    m_pModeWidget->SaveSettings();
+    auto ret = QMessageBox::question(
+        this,
+        "确认",
+        "确定要保存参数吗？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (ret == QMessageBox::Yes)
+    {
+        m_pModeWidget->SaveSettings();
+    }
+    else
+    {
+
+    }
 }
 
 void ControlWidget::on_pbSaveModeAs_clicked()
@@ -248,5 +269,45 @@ void ControlWidget::on_tabPanel_currentChanged(int index)
         ui->pbNewMode->setEnabled(true);
         ui->pbMode2Control->setEnabled(true);
         ui->pbControl2Mode->setEnabled(false);
+    }
+}
+
+void ControlWidget::on_pbControl2Mode_clicked()
+{
+    auto ret = QMessageBox::question(
+        this,
+        "确认",
+        "确定要将控制参数覆盖到模式数据吗？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (ret == QMessageBox::Yes)
+    {
+        m_pModeWidget->CopyButtonParams(m_pControlWidget);
+    }
+    else
+    {
+
+    }
+}
+
+void ControlWidget::on_pbMode2Control_clicked()
+{
+    auto ret = QMessageBox::question(
+        this,
+        "确认",
+        "确定要将模式数据覆盖到控制参数吗？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (ret == QMessageBox::Yes)
+    {
+        m_pControlWidget->CopyButtonParams(m_pModeWidget);
+    }
+    else
+    {
+
     }
 }

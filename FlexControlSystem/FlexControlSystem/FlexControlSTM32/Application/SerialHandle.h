@@ -35,6 +35,8 @@ typedef struct
 	float fMotionVoltage;
 	float fMotionFrequency;
 	float fMotionTimeUse;
+	int16_t s16AngleOffset;
+	uint8_t u8SpeedCoeff;
 }SerialInfo;
 
 extern void CbUartIdleHandler(UART_HandleTypeDef *huart);
