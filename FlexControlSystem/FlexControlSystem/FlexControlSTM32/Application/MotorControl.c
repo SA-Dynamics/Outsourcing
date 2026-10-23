@@ -390,6 +390,8 @@ typedef struct
 	bool bStartFlag;
 	int16_t s16Offset;
 	uint16_t u16DirChangeCount;
+	
+	int16_t s16AngleOffset;
 }MotorType;
 
 
@@ -417,6 +419,8 @@ struct
 	uint32_t u32TimerCount;
 	bool (*pControlFunc)(void);
 	uint8_t u8FSMStep;
+	int16_t s16AngleOffset;
+	uint32_t u32DutyZoomTemp;
 }g_sMotionControl;
 
 
@@ -443,7 +447,7 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 			{
 				// 查表, 缩放占空比
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
-					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+					g_sMotorControl.sMotor[i].u32DutyZoom / g_sMotionControl.u32DutyZoomTemp) >> 15;
 				
 				int16_t s16DutyHandler = (int16_t)g_sMotorControl.sMotor[i].u16Duty + g_sMotorControl.sMotor[i].s16Offset;
 				
@@ -452,6 +456,10 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 				if (s16DutyHandler >= 0)
 				{
 					g_sMotorControl.sMotor[i].u16Duty = s16DutyHandler;
+					if (g_sMotorControl.sMotor[i].u16Duty > 4499)
+					{
+						g_sMotorControl.sMotor[i].u16Duty = 4499;
+					}
 					if (g_sMotorControl.sMotor[i].pActivePolarity != &g_sMotorControl.sMotor[i].sPolarityP)
 					{
 						HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
@@ -464,6 +472,10 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 				else
 				{
 					g_sMotorControl.sMotor[i].u16Duty = -s16DutyHandler;
+					if (g_sMotorControl.sMotor[i].u16Duty > 4499)
+					{
+						g_sMotorControl.sMotor[i].u16Duty = 4499;
+					}
 					if (g_sMotorControl.sMotor[i].pActivePolarity != &g_sMotorControl.sMotor[i].sPolarityN)
 					{
 						HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
@@ -663,6 +675,31 @@ uint32_t u32MoveOffset2 = 0;
 uint32_t u32MoveOffset3 = 0;
 
 
+void StopPWM_IT(void)
+{
+	g_sMotionControl.u32DutyZoomTemp = 1;
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
+	
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
+	
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
+
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
+	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
+	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+}
+
+
 uint32_t u32UpOffsetTest = 600;
 // 向上运动
 static bool MoveDownMode(void)
@@ -822,25 +859,7 @@ static bool MoveDownMode(void)
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -854,7 +873,7 @@ static bool MoveDownMode(void)
 uint32_t u32DownOffsetTest = 600;
 
 
-
+int32_t s32Phase = 0;
 // 向下运动
 static bool MoveUpMode(void)
 //static bool MoveDownMode(void)
@@ -876,8 +895,8 @@ static bool MoveUpMode(void)
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32MoveOffset0 = 300;
-			u32MoveOffset3 = 500;
+			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			u32MoveOffset1 = 0;
 			u32MoveOffset2 = 0;
 			break;
@@ -898,7 +917,6 @@ static bool MoveUpMode(void)
 				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
 											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
 											g_sMotorControl.sMotor[i].u16Duty); 
-//				g_sMotorControl.sMotor[i].u32Index += g_sMotorControl.sMotor[i].u32Span;	
 			}
 			break;
 		
@@ -917,74 +935,14 @@ static bool MoveUpMode(void)
 			
 		case WAIT_MOTION1GROUP_STOP:
 			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
-			{
-//				if (g_sMotorControl.sMotor[0].pActivePolarity == &g_sMotorControl.sMotor[0].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[3].pActivePolarity == &g_sMotorControl.sMotor[3].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[0].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[0].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[3].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[3].bStartFlag = true;
-				
+			{				
 				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
 			}
 			break;
 			
 		case WAIT_MOTION2GROUP_STOP:
 			if (!g_sMotorControl.sMotor[1].bStartFlag && !g_sMotorControl.sMotor[2].bStartFlag)
-			{
-//				if (g_sMotorControl.sMotor[1].pActivePolarity == &g_sMotorControl.sMotor[1].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[2].pActivePolarity == &g_sMotorControl.sMotor[2].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[1].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[1].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[2].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[2].bStartFlag = true;
-				
+			{				
 				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
 			}
 			break;
@@ -997,12 +955,9 @@ static bool MoveUpMode(void)
 				{
 					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
 				}
+				
 				g_sMotionControl.u8FSMStep = INIT_MOTION;
 			}
-//			else
-//			{
-//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-//			}
 			break;
 			
 		default:
@@ -1011,27 +966,8 @@ static bool MoveUpMode(void)
 	
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
-	{
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+	{		
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1044,8 +980,8 @@ static bool MoveUpMode(void)
 
 uint32_t u32LeftOffsetTest = 400;
 // 向左运动
-static bool MoveRightMode(void)
-//static bool MoveLeftMode(void)
+//static bool MoveRightMode(void)
+static bool MoveLeftMode(void)
 {
 	bool bRet = false;
 	
@@ -1079,8 +1015,7 @@ static bool MoveRightMode(void)
 					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
 				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
 											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
-											g_sMotorControl.sMotor[i].u16Duty); 
-//				g_sMotorControl.sMotor[i].u32Index += g_sMotorControl.sMotor[i].u32Span;	
+											g_sMotorControl.sMotor[i].u16Duty); 	
 			}
 			break;
 		
@@ -1097,36 +1032,6 @@ static bool MoveRightMode(void)
 		case WAIT_MOTION1GROUP_STOP:
 			if (!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
 			{
-//				if (g_sMotorControl.sMotor[2].pActivePolarity == &g_sMotorControl.sMotor[2].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[3].pActivePolarity == &g_sMotorControl.sMotor[3].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[2].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[2].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[3].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[3].bStartFlag = true;
-				
 				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
 			}
 			break;
@@ -1134,36 +1039,6 @@ static bool MoveRightMode(void)
 		case WAIT_MOTION2GROUP_STOP:
 			if (!g_sMotorControl.sMotor[1].bStartFlag && !g_sMotorControl.sMotor[0].bStartFlag)
 			{
-//				if (g_sMotorControl.sMotor[1].pActivePolarity == &g_sMotorControl.sMotor[1].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[0].pActivePolarity == &g_sMotorControl.sMotor[0].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[1].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[1].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[0].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[0].bStartFlag = true;
-				
 				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
 			}
 			break;
@@ -1191,26 +1066,7 @@ static bool MoveRightMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1222,9 +1078,11 @@ static bool MoveRightMode(void)
 }
 
 uint32_t u32RightOffsetTest = 400;
+uint32_t u32DelayTest = 0;
+uint32_t u32DivTemp = 4;
 // 向右运动
-static bool MoveLeftMode(void)
-//static bool MoveRightMode(void)
+//static bool MoveLeftMode(void)
+static bool MoveRightMode(void)
 {
 	bool bRet = false;
 	
@@ -1238,27 +1096,61 @@ static bool MoveLeftMode(void)
 		CHECK_DIR_COUNT,
 	};
 	
+	
+	static uint8_t u8Group10 = 0;
+	static uint8_t u8Group11 = 1;
+	static uint8_t u8Group20 = 2;
+	static uint8_t u8Group21 = 3;
+	
+	static uint32_t u32GroupSelect = 0;
+	
 	switch (g_sMotionControl.u8FSMStep)
 	{
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
+			u32GroupSelect = 0;
+			u32MoveOffset0 = 0;
+			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+			u32MoveOffset1 = 0;
+			u32MoveOffset2 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
-			g_sMotorControl.sMotor[0].u32Index = u32RightOffsetTest * 32768;
-			g_sMotorControl.sMotor[1].u32Index = u32RightOffsetTest * 32768;
+			// 超前相位
+			if (u32GroupSelect % 2 == 0)
+			{
+				u8Group10 = 2;
+				u8Group11 = 3;
+				u8Group20 = 0;
+				u8Group21 = 1;
+				
+				g_sMotionControl.u32DutyZoomTemp = 1;
+			}
+			else
+			{
+				u8Group10 = 0;
+				u8Group11 = 1;
+				u8Group20 = 2;
+				u8Group21 = 3;
+				
+				g_sMotionControl.u32DutyZoomTemp = u32DivTemp;
+			}
+			
+			g_sMotorControl.sMotor[u8Group10].u32Index = u32MoveOffset2 * 32768;
+			g_sMotorControl.sMotor[u8Group11].u32Index = u32MoveOffset3 * 32768;
+			g_sMotorControl.sMotor[u8Group20].u32Index = 0;
+			g_sMotorControl.sMotor[u8Group21].u32Index = 0;
 			for (uint8_t i = 0; i < 4; i++)
 			{
 				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
 			
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
-					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+					g_sMotorControl.sMotor[i].u32DutyZoom / g_sMotionControl.u32DutyZoomTemp) >> 15;
 				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
 											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
 											g_sMotorControl.sMotor[i].u16Duty); 
-//				g_sMotorControl.sMotor[i].u32Index += g_sMotorControl.sMotor[i].u32Span;	
 			}
 			break;
 		
@@ -1273,93 +1165,26 @@ static bool MoveLeftMode(void)
 			break;
 			
 		case WAIT_MOTION1GROUP_STOP:
-			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[1].bStartFlag)
-			{
-//				if (g_sMotorControl.sMotor[0].pActivePolarity == &g_sMotorControl.sMotor[0].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[0].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[0].pActivePolarity = &g_sMotorControl.sMotor[0].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[1].pActivePolarity == &g_sMotorControl.sMotor[1].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[1].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[1].pActivePolarity = &g_sMotorControl.sMotor[1].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[0].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[0].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[1].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[1].bStartFlag = true;
-				
+			if (!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+			{				
 				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
 			}
 			break;
 			
 		case WAIT_MOTION2GROUP_STOP:
-			if (!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[1].bStartFlag)
 			{
-//				if (g_sMotorControl.sMotor[2].pActivePolarity == &g_sMotorControl.sMotor[2].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[2].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[2].pActivePolarity = &g_sMotorControl.sMotor[2].sPolarityP;
-//				}
-//				
-//				if (g_sMotorControl.sMotor[3].pActivePolarity == &g_sMotorControl.sMotor[3].sPolarityP)
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityN;
-//				}
-//				else
-//				{
-//					g_sMotorControl.sMotor[3].u16DirChangeCount++;
-//					g_sMotorControl.sMotor[3].pActivePolarity = &g_sMotorControl.sMotor[3].sPolarityP;
-//				}
-//				
-//				g_sMotorControl.sMotor[2].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[2].bStartFlag = true;
-//				
-//				g_sMotorControl.sMotor[3].u32Index = 0;
-//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
-//				g_sMotorControl.sMotor[3].bStartFlag = true;
-				
 				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
 			}
 			break;
 			
 		case CHECK_DIR_COUNT:
-//			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
-//				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
+			for (uint8_t i = 0; i < 4; i++)
 			{
-				for (uint8_t i = 0; i < 4; i++)
-				{
-					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-				}
-				g_sMotionControl.u8FSMStep = INIT_MOTION;
+				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
 			}
-//			else
-//			{
-//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-//			}
+			//u32GroupSelect++;
+			g_sMotionControl.u8FSMStep = INIT_MOTION;
 			break;
 			
 		default:
@@ -1369,26 +1194,7 @@ static bool MoveLeftMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1494,25 +1300,7 @@ static bool MoveGatherMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1620,25 +1408,7 @@ static bool MoveDisperseMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1763,25 +1533,7 @@ static bool MoveHGatherMode(void)
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -1834,6 +1586,8 @@ static bool MoveVGatherMode(void)
 				u8Group11 = 3;
 				u8Group20 = 0;
 				u8Group21 = 1;
+//				u32VGatherOffsetTest = 400;
+//				u32VGatherOffsetTest = 400;
 			}
 			else
 			{
@@ -1841,10 +1595,14 @@ static bool MoveVGatherMode(void)
 				u8Group11 = 1;
 				u8Group20 = 2;
 				u8Group21 = 3;
+//				u32VGatherOffsetTest = 400;
+//				u32VGatherOffsetTest = 400;
 			}
 			
 			g_sMotorControl.sMotor[u8Group10].u32Index = u32VGatherOffsetTest * 32768;
 			g_sMotorControl.sMotor[u8Group11].u32Index = u32VGatherOffsetTest * 32768;
+			g_sMotorControl.sMotor[u8Group20].u32Index = 0;
+			g_sMotorControl.sMotor[u8Group21].u32Index = 0;
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
@@ -1883,20 +1641,12 @@ static bool MoveVGatherMode(void)
 			break;
 			
 		case CHECK_DIR_COUNT:
-//			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
-//				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
+			for (uint8_t i = 0; i < 4; i++)
 			{
-				for (uint8_t i = 0; i < 4; i++)
-				{
-					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-				}
-				g_sMotionControl.u8FSMStep = INIT_MOTION;
-				u32GroupSelect++;
+				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
 			}
-//			else
-//			{
-//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-//			}
+			g_sMotionControl.u8FSMStep = INIT_MOTION;
+			u32GroupSelect++;
 			break;
 			
 		default:
@@ -1905,26 +1655,7 @@ static bool MoveVGatherMode(void)
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityN.htim, g_sMotorControl.sMotor[0].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityP.htim, g_sMotorControl.sMotor[1].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[1].sPolarityN.htim, g_sMotorControl.sMotor[1].sPolarityN.u32CmpChannel, 0);
-		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityP.htim, g_sMotorControl.sMotor[2].sPolarityP.u32CmpChannel, 0);
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[2].sPolarityN.htim, g_sMotorControl.sMotor[2].sPolarityN.u32CmpChannel, 0);
-
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityP.htim, g_sMotorControl.sMotor[3].sPolarityP.u32CmpChannel, 0);		
-		HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel);
-		__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[3].sPolarityN.htim, g_sMotorControl.sMotor[3].sPolarityN.u32CmpChannel, 0);
+		StopPWM_IT();
 		
 		CbMotionFinish(g_sMotionControl.u8Index);
 		MotionEndHandler();
@@ -2052,6 +1783,8 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 	g_sMotorControl.sMotor[1].u32DutyZoom = g_sMotorControl.sMotor[1].u32DutyZoom * fM1Coeff;
 	g_sMotorControl.sMotor[2].u32DutyZoom = g_sMotorControl.sMotor[2].u32DutyZoom * fM2Coeff;
 	g_sMotorControl.sMotor[3].u32DutyZoom = g_sMotorControl.sMotor[3].u32DutyZoom * fM3Coeff;
+	
+	g_sMotionControl.s16AngleOffset = pParams->s16AngleOffset;
 	
 	// 16kHz的PWM, 10Hz振动频率时, 一个周期包含1600个PWM周期, 以此为基准
 	float fFrequency = pParams->fFrequency;

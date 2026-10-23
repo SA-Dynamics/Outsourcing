@@ -127,7 +127,7 @@ static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 	pInfoWrite->s16AngleOffset = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 9) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 10) % UART_RECV_DATA_BUFFER_SIZE]);
 		
-	pInfoWrite->fMotionTimeUse = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+	pInfoWrite->u8SpeedCoeff = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 12) % UART_RECV_DATA_BUFFER_SIZE]);
 }
 

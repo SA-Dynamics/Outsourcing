@@ -19,6 +19,8 @@ void MotorMotionHandler(const SerialInfo *pInfo)
 	sParams.fVoltage = pInfo->fMotionVoltage;
 	sParams.fFrequency = pInfo->fMotionFrequency;
 	sParams.fTimeUse = pInfo->fMotionTimeUse;
+	sParams.s16AngleOffset = pInfo->s16AngleOffset;
+	sParams.u8SpeedCoeff = pInfo->u8SpeedCoeff;
 	
 	SendMotorInfo(&sParams);
 }

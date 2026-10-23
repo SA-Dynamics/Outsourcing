@@ -38,8 +38,6 @@ RS485Handle::RS485Handle()
 
 RS485Handle::~RS485Handle()
 {
-    m_pSendHeartDataTimer->stop();
-    m_pSendMotionDataTimer->stop();
     m_pHeartBeatTimer->stop();
 
     if (m_bConnect)
@@ -74,7 +72,7 @@ void RS485Handle::SetupConnective(const QString &qstrInfo)
         // 打卡成功才能开启定时发送
         //m_pSendHeartDataTimer->start(10);
         m_pHeartBeatTimer->start(1000);
-        m_pSendMotionDataTimer->start(10);
+//        m_pSendMotionDataTimer->start(10);
 
     }
 
@@ -99,22 +97,31 @@ void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray 
     qDebug() << "send motion";
     m_qmapSendBuffer[SendCmdType::MotionCmd].append(sSendStruct);
     m_pSerial->write(m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtSend);
-
+    m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
 
     QtConcurrent::run([this]()
     {
-        for (int i = 0; i < 200; i++)
-        {
-            m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+        m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+        uint32_t u32LoopTimes = m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh / 10;
+        bool bRespond = false;
+        uint32_t u32TimeUse = 0;
+        uint32_t u32TimeExpect = 0;
 
-            if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64CurrentTime -
-                    m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime <
-                    m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh)
+        for (uint32_t i = 0; i < u32LoopTimes; i++)
+        {
             {
                 QMutexLocker Locker(&m_Mutex);
-                if (m_qmapSendBuffer[SendCmdType::MotionCmd].first().bRespond)
+                bRespond = m_qmapSendBuffer[SendCmdType::MotionCmd].first().bRespond;
+                u32TimeUse = QDateTime::currentMSecsSinceEpoch() - m_qmapSendBuffer[SendCmdType::MotionCmd].first().i64StartTime;
+                u32TimeExpect = m_qmapSendBuffer[SendCmdType::MotionCmd].first().u32ExpectedRespondTimeThresh;
+            }
+
+            if (u32TimeUse < u32TimeExpect)
+            {
+                if (bRespond)
                 {
                     m_qmapSendBuffer[SendCmdType::MotionCmd].removeFirst();
+                    emit sigMotionTerminate();
                     break;
                 }
                 else
@@ -125,6 +132,8 @@ void RS485Handle::SendMotionCommand(const QByteArray &qbtData, const QByteArray 
             else
             {
                 // 超时
+                qDebug() << "motion respond timeout";
+                QMutexLocker Locker(&m_Mutex);
                 m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
                 emit sigMotionRespondUnnormal();
                 break;
@@ -193,12 +202,12 @@ void RS485Handle::RecvMessageHandle(void)
 
     if (!m_qmapSendBuffer[SendCmdType::HeartBeat].isEmpty() &&
         m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtRespond)
-    {
+    {        
         m_qmapSendBuffer[SendCmdType::HeartBeat].first().bRespond = true;
     }
     else if (!m_qmapSendBuffer[SendCmdType::MotionCmd].isEmpty() &&
              m_qvecRecvBuffer.first() == m_qmapSendBuffer[SendCmdType::MotionCmd].first().qbtRespond)
-    {
+    {        
         m_qmapSendBuffer[SendCmdType::MotionCmd].first().bRespond = true;
     }
     else if (!m_qmapSendBuffer[SendCmdType::StopMotion].isEmpty() &&
@@ -206,18 +215,16 @@ void RS485Handle::RecvMessageHandle(void)
     {
         m_qmapSendBuffer[SendCmdType::StopMotion].first().bRespond = true;
     }
-    else
-    {
-        qDebug() << "remove error recv info" << m_qvecRecvBuffer.first();
-        m_qvecRecvBuffer.removeFirst();
-    }
+
+    qDebug() << "remove recv info" << m_qvecRecvBuffer.first();
+    m_qvecRecvBuffer.removeFirst();
 }
 
 
 void RS485Handle::ReceivedDataHandler(void)
 {
     QByteArray qbtRaw = m_pSerial->readAll();
-    qDebug() << qbtRaw;
+    qDebug() << "recv raw data" << qbtRaw;
     for (uint8_t u8Byte : qbtRaw)
     {
         switch (m_eParseRecvState)
@@ -225,7 +232,7 @@ void RS485Handle::ReceivedDataHandler(void)
             case WaitHeader1:
                 if (u8Byte == GeneralProtocolItems::u8FRAME_HEAD1)
                 {
-                    qDebug() << "get fh1" << u8Byte;
+//                    qDebug() << "get fh1" << u8Byte;
                     m_pParseRecvTimer->start(2000);
                     m_qbtRecvData.clear();
                     m_qbtRecvData.append(u8Byte);
@@ -236,20 +243,20 @@ void RS485Handle::ReceivedDataHandler(void)
             case WaitHeader2:
                 if (u8Byte == GeneralProtocolItems::u8FRAME_HEAD2)
                 {
-                    qDebug() << "get fh2" << u8Byte;
+//                    qDebug() << "get fh2" << u8Byte;
                     m_qbtRecvData.append(u8Byte);
                     m_eParseRecvState = WaitCmd;
                 }
                 break;
 
             case WaitCmd:
-                qDebug() << "get cmd" << u8Byte;
+//                qDebug() << "get cmd" << u8Byte;
                 m_qbtRecvData.append(u8Byte);
                 m_eParseRecvState = WaitLength;
                 break;
 
             case WaitLength:
-                qDebug() << "get length" << u8Byte;
+//                qDebug() << "get length" << u8Byte;
                 m_qbtRecvData.append(u8Byte);
                 m_eParseRecvState = WaitData;
                 break;
@@ -261,20 +268,20 @@ void RS485Handle::ReceivedDataHandler(void)
                 }
                 else
                 {
-                    qDebug() << "get data" << u8Byte;
+//                    qDebug() << "get data" << u8Byte;
                     m_qbtRecvData.append(u8Byte);
                     break;
                 }
 
 
             case WaitCheckSum1:
-                qDebug() << "get cs1:" << u8Byte;
+//                qDebug() << "get cs1:" << u8Byte;
                 m_qbtRecvData.append(u8Byte);
                 m_eParseRecvState = WaitCheckSum2;
                 break;
 
             case WaitCheckSum2:
-                qDebug() << "get cs2:" << u8Byte;
+//                qDebug() << "get cs2:" << u8Byte;
                 m_qbtRecvData.append(u8Byte);
                 m_eParseRecvState = WaitTail1;
                 break;
@@ -282,7 +289,7 @@ void RS485Handle::ReceivedDataHandler(void)
             case WaitTail1:
                 if (u8Byte == GeneralProtocolItems::u8FRAME_TAIL1)
                 {
-                    qDebug() << "get t1" << u8Byte;
+//                    qDebug() << "get t1" << u8Byte;
                     m_qbtRecvData.append(u8Byte);
                     m_eParseRecvState = WaitTail2;
                 }
@@ -291,7 +298,7 @@ void RS485Handle::ReceivedDataHandler(void)
             case WaitTail2:
                 if (u8Byte == GeneralProtocolItems::u8FRAME_TAIL2)
                 {
-                    qDebug() << "get t2" << u8Byte;
+//                    qDebug() << "get t2" << u8Byte;
                     m_pParseRecvTimer->stop();
                     m_qbtRecvData.append(u8Byte);
                     m_qvecRecvBuffer.append(m_qbtRecvData);
@@ -325,22 +332,31 @@ void RS485Handle::OnHeartBeatTimerTimeout(void)
         sSendStruct.u32ExpectedRespondTimeThresh = 1000;
         sSendStruct.i64CurrentTime = 0;
 
+//        qDebug() << "send:" << qbtData;
+//        qDebug() << "respond" << qbtRespond;
         m_qmapSendBuffer[SendCmdType::HeartBeat].append(sSendStruct);
         m_pSerial->write(m_qmapSendBuffer[SendCmdType::HeartBeat].first().qbtSend);
-
+        m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime = QDateTime::currentMSecsSinceEpoch();
 
         QtConcurrent::run([this]()
         {
+            m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
+            bool bRespond = false;
+            uint32_t u32TimeUse = 0;
+            uint32_t u32TimeExpect = 0;
+
             for (int i = 0; i < 200; i++)
             {
-                m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime = QDateTime::currentMSecsSinceEpoch();
-
-                if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64CurrentTime -
-                        m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime <
-                        m_qmapSendBuffer[SendCmdType::HeartBeat].first().u32ExpectedRespondTimeThresh)
                 {
                     QMutexLocker Locker(&m_Mutex);
-                    if (m_qmapSendBuffer[SendCmdType::HeartBeat].first().bRespond)
+                    bRespond = m_qmapSendBuffer[SendCmdType::HeartBeat].first().bRespond;
+                    u32TimeUse = QDateTime::currentMSecsSinceEpoch() - m_qmapSendBuffer[SendCmdType::HeartBeat].first().i64StartTime;
+                    u32TimeExpect = m_qmapSendBuffer[SendCmdType::HeartBeat].first().u32ExpectedRespondTimeThresh;
+                }
+
+                if (u32TimeUse < u32TimeExpect)
+                {
+                    if (bRespond)
                     {
                         m_qmapSendBuffer[SendCmdType::HeartBeat].removeFirst();
                         break;
@@ -353,8 +369,11 @@ void RS485Handle::OnHeartBeatTimerTimeout(void)
                 else
                 {
                     // 超时
+                    QMutexLocker Locker(&m_Mutex);
+                    qDebug() << "heartbeat respond timeout";
                     m_qmapSendBuffer[SendCmdType::HeartBeat].clear();
                     m_qmapSendBuffer[SendCmdType::MotionCmd].clear();
+                    m_pSendHeartDataTimer->stop();
                     emit sigHeartBeatUnnormal();
                     break;
                 }

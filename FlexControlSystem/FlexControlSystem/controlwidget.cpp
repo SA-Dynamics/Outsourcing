@@ -41,6 +41,7 @@ ControlWidget::~ControlWidget()
 
 void ControlWidget::on_pbUpdatePort_clicked()
 {
+    ui->cbCOM->clear();
     foreach (const QSerialPortInfo &Port, QSerialPortInfo::availablePorts())
     {
         ui->cbCOM->addItem(Port.portName());
@@ -98,6 +99,8 @@ void ControlWidget::SetConnectSlot(const bool bSet)
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigMotionTerminate, this, [this]() {
             emit m_pControlWidget->sigMotionTerminate();
         });
+
+        qDebug() << "set slot after connected";
     }
     else
     {
