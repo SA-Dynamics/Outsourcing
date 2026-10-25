@@ -68,5 +68,6 @@ private:
     ConnectObject m_eConnectObject;
 
     void SetConnectSlot(const bool bSet);
+    void CloseConnection(void);
 };
 #endif // CONTROLWIDGET_H

@@ -4,69 +4,26 @@
 #include "ConnectiveHandle.h"
 #include <QSerialPort>
 #include <QSerialPortInfo>
-#include <QTimer>
-#include "generalprotocol.h"
-#include <QMap>
-#include <QMutex>
-#include <QMutexLocker>
 
+// 485/串口传输层: 公共业务(队列/心跳/应答/超时/帧解析)全部在 ConnectiveHandle 基类
 class RS485Handle : public ConnectiveHandle
 {
+    Q_OBJECT
+
 public:
     RS485Handle();
-    ~RS485Handle();
+    ~RS485Handle() override;
 
-
-public slots:
-//    void SetConnectiveInfo(const QString &qstrInfo) override;
-//    void SetupConnective(void) override;
-    void SendMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond) ;
-    void SendStopMotionCommand();
+protected:
+    bool OpenChannel(const QString &qstrInfo) override;
+    void CloseChannel() override;
+    bool WriteData(const QByteArray &qbtData) override;
 
 private slots:
     void ReceivedDataHandler(void);
-    void OnHeartBeatTimerTimeout(void);
-    void OnSendHeartDataTimerTimeout(void);
-    void OnSendMotionDataTimerTimeout(void);
-    void OnParseRecvTimeout(void);
-//    void SetConnectiveInfo(const QString &qstrInfo);
-    void SetupConnective(const QString &qstrInfo) override;
 
 private:
-    QString m_qstrCurrentPort;
     QSerialPort *m_pSerial;
-    QTimer *m_pHeartBeatTimer;
-    QTimer *m_pSendHeartDataTimer;
-    QTimer *m_pSendMotionDataTimer;
-    QTimer *m_pParseRecvTimer;
-
-    enum ParseState { WaitHeader1, WaitHeader2, WaitCmd, WaitLength, WaitData, WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2};
-    enum class SendCmdType {HeartBeat, MotionCmd, StopMotion, UnknownCmd};
-
-    struct SendCmdStruct
-    {
-        bool bRespond;
-        uint32_t u32ExpectedRespondTimeThresh;
-        qint64 i64StartTime;
-        qint64 i64CurrentTime;
-        QByteArray qbtSend;
-        QByteArray qbtRespond;
-    };
-
-    ParseState m_eParseRecvState = WaitHeader1;
-
-    ProtocolHandle *m_pProtocol;
-    QMap<SendCmdType, QVector<SendCmdStruct>> m_qmapSendBuffer;
-
-    QByteArray m_qbtRecvData;
-    QVector<QByteArray> m_qvecRecvBuffer;
-    bool m_bConnect;
-
-    bool m_bMotionCmdSendAllow;
-
-    void RecvMessageHandle(void);
-
-    QMutex m_Mutex;
 };
 
 #endif // RS485HANDLE_H

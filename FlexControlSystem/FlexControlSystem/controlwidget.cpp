@@ -13,6 +13,10 @@ ControlWidget::ControlWidget(QWidget *parent)
 
     m_eConnectObject = ConnectObject::ObjectNone;
 
+    // 通信对象与工作线程指针必须显式初始化, 否则连接失败分支会使用野指针
+    m_ConnectiveHandler = nullptr;
+    m_pConnectiveThread = nullptr;
+
 
     // 控制面板实例化, 一个用于配置, 一个用于控制
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
@@ -28,13 +32,17 @@ ControlWidget::ControlWidget(QWidget *parent)
     ui->pbMode2Control->setEnabled(false);
 
 
-    QRegularExpression Regex("^[0-9.]+$");
+    // 允许 ip:port 格式(冒号用于手动指定端口, 缺省 5000)
+    QRegularExpression Regex("^[0-9.:]+$");
     QRegularExpressionValidator *Validator = new QRegularExpressionValidator(Regex, this);
     ui->leIP->setValidator(Validator);
 }
 
 ControlWidget::~ControlWidget()
 {
+    // 退出前停止通信线程并销毁通信对象, 避免退出时访问已释放的界面资源
+    CloseConnection();
+
     delete ui;
 }
 
@@ -66,18 +74,71 @@ void ControlWidget::OnConnectiveState(const bool &bState)
             ui->pbRS485Disconnect->setEnabled(true);
             ui->pbUpdatePort->setEnabled(false);
         }
+        else if (m_eConnectObject == ConnectObject::ObjectTCP)
+        {
+            ui->pbTCPConnect->setEnabled(false);
+            ui->pbTCPDisconnect->setEnabled(true);
+        }
 
         ui->tabControl->setEnabled(true);
     }
     else
     {
-        // 连接不成功, 弹出提示, 结束线程
+        // 连接不成功, 弹出提示并清理对象与线程
         QMessageBox::critical(this, "错误", "目标连接失败");
-        m_ConnectiveHandler->deleteLater();
-        m_pConnectiveThread->quit();
-        m_pConnectiveThread->wait();
+        CloseConnection();
+
+        if (m_eConnectObject == ConnectObject::Object485)
+        {
+            ui->pbRS485Connect->setEnabled(true);
+            ui->pbUpdatePort->setEnabled(true);
+        }
+        else if (m_eConnectObject == ConnectObject::ObjectTCP)
+        {
+            ui->pbTCPConnect->setEnabled(true);
+        }
 
         m_eConnectObject = ConnectObject::ObjectNone;
+    }
+}
+
+
+// 关闭并销毁通信对象与工作线程
+// 线程先 quit/wait 停止, 再直接 delete 通信对象(此时其所属线程已停, 无并发访问)
+// 不用 deleteLater: 若线程事件循环先退出, deleteLater 事件将永远不会被处理, 造成泄漏
+void ControlWidget::CloseConnection(void)
+{
+    if (m_ConnectiveHandler)
+    {
+        // 断开全部信号连接, 避免清理过程中的信号投递
+        m_ConnectiveHandler->disconnect();
+    }
+
+    if (m_pConnectiveThread)
+    {
+        // finished 信号由工作线程自己发出, 与 handler 是同线程直连,
+        // Shutdown 在工作线程内执行: 定时器/串口都在正确线程被关闭,
+        // 避免 "Timers cannot be stopped from another thread" 警告
+        if (m_ConnectiveHandler)
+        {
+            connect(m_pConnectiveThread, &QThread::finished,
+                    m_ConnectiveHandler, &ConnectiveHandle::Shutdown);
+        }
+
+        m_pConnectiveThread->quit();
+        m_pConnectiveThread->wait();
+    }
+
+    if (m_ConnectiveHandler)
+    {
+        delete m_ConnectiveHandler;
+        m_ConnectiveHandler = nullptr;
+    }
+
+    if (m_pConnectiveThread)
+    {
+        delete m_pConnectiveThread;
+        m_pConnectiveThread = nullptr;
     }
 }
 
@@ -115,16 +176,21 @@ void ControlWidget::OnConnectiveUnnormal(const QString &qstrName)
     if (qstrName == "HeartBeat")
     {
         QMessageBox::critical(this, "错误", "心跳检测丢失");
-        if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
-        {
-            m_ConnectiveHandler->deleteLater();
-            m_pConnectiveThread->quit();
-            m_pConnectiveThread->wait();
+        CloseConnection();
 
+        if (m_eConnectObject == ConnectObject::Object485)
+        {
             ui->pbRS485Connect->setEnabled(true);
             ui->pbRS485Disconnect->setEnabled(false);
             ui->pbUpdatePort->setEnabled(true);
         }
+        else if (m_eConnectObject == ConnectObject::ObjectTCP)
+        {
+            ui->pbTCPConnect->setEnabled(true);
+            ui->pbTCPDisconnect->setEnabled(false);
+        }
+
+        m_eConnectObject = ConnectObject::ObjectNone;
     }
     else if (qstrName == "MotionRespond")
     {
@@ -138,11 +204,33 @@ void ControlWidget::OnConnectiveUnnormal(const QString &qstrName)
 
 void ControlWidget::on_pbTCPConnect_clicked()
 {
+    // 已有连接时忽略重复点击
+    if (m_ConnectiveHandler || m_pConnectiveThread)
+    {
+        return;
+    }
+
+    // 点击了连接，创建 TCP 通信对象
     m_ConnectiveHandler = new TCPHandle();
     m_pConnectiveThread = new QThread();
     m_ConnectiveHandler->moveToThread(m_pConnectiveThread);
 
-    connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
+    SetConnectSlot(true);
+
+    m_eConnectObject = ConnectObject::ObjectTCP;
+
+    m_pConnectiveThread->start();
+
+    // 连接目标: "ip:port", 未填端口时由 TCPHandle 默认 5000
+    QString qstrTarget = ui->leIP->text().trimmed();
+    if (!qstrTarget.contains(':'))
+    {
+        qstrTarget += ":5000";
+    }
+
+    ui->pbTCPConnect->setEnabled(false);
+
+    emit m_ConnectiveHandler->sigSetUpConnective(qstrTarget);
 }
 
 
@@ -152,9 +240,12 @@ void ControlWidget::on_pbTCPDisconnect_clicked()
 {
     if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::ObjectTCP))
     {
-        m_ConnectiveHandler->deleteLater();
-        m_pConnectiveThread->quit();
-        m_pConnectiveThread->wait();
+        CloseConnection();
+
+        ui->pbTCPConnect->setEnabled(true);
+        ui->pbTCPDisconnect->setEnabled(false);
+
+        m_eConnectObject = ConnectObject::ObjectNone;
     }
 }
 
@@ -162,6 +253,12 @@ void ControlWidget::on_pbTCPDisconnect_clicked()
 
 void ControlWidget::on_pbRS485Connect_clicked()
 {
+    // 已有连接时忽略重复点击
+    if (m_ConnectiveHandler || m_pConnectiveThread)
+    {
+        return;
+    }
+
     // 点击了连接，创建485通信对象
     m_ConnectiveHandler = new RS485Handle();
     m_pConnectiveThread = new QThread();
@@ -183,13 +280,13 @@ void ControlWidget::on_pbRS485Disconnect_clicked()
     // 断开485连接
     if (m_ConnectiveHandler && (m_eConnectObject == ConnectObject::Object485))
     {
-        m_ConnectiveHandler->deleteLater();
-        m_pConnectiveThread->quit();
-        m_pConnectiveThread->wait();
+        CloseConnection();
 
         ui->pbRS485Connect->setEnabled(true);
         ui->pbRS485Disconnect->setEnabled(false);
         ui->pbUpdatePort->setEnabled(true);
+
+        m_eConnectObject = ConnectObject::ObjectNone;
     }
 }
 
