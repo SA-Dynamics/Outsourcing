@@ -57,6 +57,11 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define INTN_Pin GPIO_PIN_4
+#define INTN_GPIO_Port GPIOA
+#define INTN_EXTI_IRQn EXTI4_IRQn
+#define RSTN_Pin GPIO_PIN_5
+#define RSTN_GPIO_Port GPIOA
 #define EnableRightBottum_Pin GPIO_PIN_12
 #define EnableRightBottum_GPIO_Port GPIOB
 #define EnableLeftBottum_Pin GPIO_PIN_13
@@ -65,6 +70,8 @@ void Error_Handler(void);
 #define EnableRightTop_GPIO_Port GPIOB
 #define EnableLeftTop_Pin GPIO_PIN_15
 #define EnableLeftTop_GPIO_Port GPIOB
+#define SPI_CS_Pin GPIO_PIN_15
+#define SPI_CS_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

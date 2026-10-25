@@ -1,5 +1,5 @@
 #include "Timer.h"
-//#include "tim.h"
+#include "tim.h"
 
 
 /**
@@ -45,7 +45,7 @@ uint32_t GetTimerTickDelta(const uint32_t u32LastCount, const uint32_t u32CurCou
   */
 void ResetTimerCountUs(uint32_t *pCountUs)
 {
-//	*pCountUs = htim5.Instance->CNT;
+	*pCountUs = htim1.Instance->CNT;
 }
 
 
@@ -56,7 +56,7 @@ void ResetTimerCountUs(uint32_t *pCountUs)
   */
 uint32_t GetCurTimerCountUs(void)
 {
-//  return htim5.Instance->CNT;
+  return htim1.Instance->CNT;
 }
 
 
@@ -67,9 +67,9 @@ uint32_t GetCurTimerCountUs(void)
   */
 uint32_t GetTimerTickDeltaUs(const uint32_t u32LastCount, const uint32_t u32CurCount)
 {
-//    uint32_t u32Delta = 0;
-//    u32Delta = (u32CurCount >= u32LastCount) ? (u32CurCount - u32LastCount) : (0xFFFFFFFF - u32LastCount + u32CurCount + 1);
-//    
-//    return u32Delta;
+    uint32_t u32Delta = 0;
+    u32Delta = (u32CurCount >= u32LastCount) ? (u32CurCount - u32LastCount) : (0xFFFFFFFF - u32LastCount + u32CurCount + 1);
+    
+    return u32Delta;
 }
 
