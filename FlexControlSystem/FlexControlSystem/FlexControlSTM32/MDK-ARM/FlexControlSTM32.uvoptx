@@ -280,6 +280,11 @@
           <WinNumber>1</WinNumber>
           <ItemText>u32DivTemp,0x0A</ItemText>
         </Ww>
+        <Ww>
+          <count>26</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>u32SpanOffset,0x0A</ItemText>
+        </Ww>
       </WatchWindow1>
       <Tracepoint>
         <THDelay>0</THDelay>
