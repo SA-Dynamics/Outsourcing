@@ -191,6 +191,22 @@ static void W5500WriteSocketBuf(const uint8_t u8Socket, const uint16_t u16Ptr, c
 
 // ============================ 调试辅助 ============================
 
+// SPI 回环测试: 断开 W5500 的 MISO, 用杜邦线把 PB4(MISO) 直连 PB5(MOSI) 后调用
+// MCU 发 0xA5 直接回读, 等于 0xA5 说明 MCU 侧 SPI(含重映射) 完全正常,
+// 0xFF 问题出在 MCU 与 W5500 之间的接线/供电/芯片; 不等则查 MCU 侧配置
+bool W5500SpiLoopbackTest(void)
+{
+	uint8_t u8Send = 0xA5;
+	uint8_t u8Recv = 0;
+
+	// CS 保持高, 不打扰 W5500(其 MISO 此时为高阻)
+	W5500_CS_HIGH();
+	HAL_SPI_TransmitReceive(&hspi1, &u8Send, &u8Recv, 1, 10);
+
+	return (u8Recv == 0xA5);
+}
+
+
 // SPI 总线自检: 先确保已调用过 W5500HardwareReset(否则芯片在复位态必然失败)
 // 写 MR 寄存器后回读比对, 用于隔离"读恒为 0xFF/0x00"是协议问题还是总线/接线问题
 // 返回 true = 总线正常; false = MISO 未响应, 按顺序查:

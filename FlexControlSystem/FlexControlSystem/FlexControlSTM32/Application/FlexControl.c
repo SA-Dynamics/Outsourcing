@@ -108,7 +108,7 @@ void FlexControlInit(void)
 	MotionControlInit();
 
 	// 首次初始化网络, 失败不阻塞其余模块, 由 NetworkRetryHandle 定期重试
-	g_bNetworkInitSuccess = NetworkInit();
+//	g_bNetworkInitSuccess = NetworkInit();
 }
 
 
@@ -117,14 +117,14 @@ void FlexControlHandle(void)
 	SerialRecvInfoHandle();
 	SerialDataHandle();
 
-	// 未初始化成功时内部只做计时, 不访问 W5500, 不占用 SPI 总线
-	NetworkRetryHandle();
+//	// 未初始化成功时内部只做计时, 不访问 W5500, 不占用 SPI 总线
+//	NetworkRetryHandle();
 
-	// 初始化成功后才运行网络状态机, 避免 W5500 不在位时每周期空跑 SPI 读
-	if (g_bNetworkInitSuccess)
-	{
-		NetworkHandle();
-	}
+//	// 初始化成功后才运行网络状态机, 避免 W5500 不在位时每周期空跑 SPI 读
+//	if (g_bNetworkInitSuccess)
+//	{
+//		NetworkHandle();
+//	}
 
 	MotorControl();
 }

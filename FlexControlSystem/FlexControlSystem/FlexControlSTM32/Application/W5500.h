@@ -35,6 +35,10 @@ bool W5500HardwareReset(void);
 // SPI 总线自检: 写 MR 回读比对, 需在 W5500HardwareReset 之后调用, 用于调试总线/接线问题
 bool W5500SpiSelfTest(void);
 
+// SPI 回环测试: 断开 W5500 MISO, 杜邦线直连 PB4(MISO)-PB5(MOSI) 后调用
+// 返回 true = MCU 侧 SPI 正常, 问题在接线/供电/芯片; false = 查 MCU 侧 SPI 配置
+bool W5500SpiLoopbackTest(void);
+
 // 配置网络信息(MAC/IP/子网掩码/网关), 需在 W5500HardwareReset 成功后调用
 void W5500SetNetInfo(const uint8_t *pMac, const uint8_t *pIp, const uint8_t *pSubnet, const uint8_t *pGw);
 
