@@ -10,6 +10,10 @@
 #define HEART_BEAT_TIMEOUT_MS       1000
 // 停止指令应答超时 ms
 #define STOP_MOTION_TIMEOUT_MS      1000
+// 料仓停止指令应答超时 ms
+#define BIN_STOP_TIMEOUT_MS         1000
+// 光源开关应答超时 ms(要求光源开启后 1s 内必须收到完成反馈)
+#define LIGHT_RESPOND_TIMEOUT_MS    1000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
 
@@ -25,6 +29,10 @@ ConnectiveHandle::ConnectiveHandle(QObject *parent)
         {SendCmdType::HeartBeat, {}},
         {SendCmdType::MotionCmd, {}},
         {SendCmdType::StopMotion, {}},
+        {SendCmdType::BinMotion, {}},
+        {SendCmdType::BinStopMotion, {}},
+        {SendCmdType::LightOn, {}},
+        {SendCmdType::LightOff, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
@@ -149,6 +157,105 @@ void ConnectiveHandle::SendStopMotionCommand()
 }
 
 
+// ============================ 料仓与光源指令 ============================
+
+// 料仓运动: 与振动盘同语义, 下位机运动完成后才回帧, 因此超时 = 时长 + 冗余
+void ConnectiveHandle::SendBinMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond = qbtRespond;
+    sSendStruct.i64StartTime = 0;
+
+    // 料仓帧的数据域布局与振动盘一致: [9][10] 为运动时长(单位 100ms)
+    sSendStruct.u32ExpectedRespondTimeThresh =
+            (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+
+    qDebug() << "send bin motion";
+    m_qmapSendBuffer[SendCmdType::BinMotion].append(sSendStruct);
+}
+
+
+void ConnectiveHandle::SendBinStopMotionCommand()
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->BinMotionStopProtocol(qbtData, qbtRespond);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond = qbtRespond;
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = BIN_STOP_TIMEOUT_MS;
+
+    qDebug() << "send bin stop motion";
+
+    // 停止指令优先: 丢弃尚未完成的料仓运动指令, 并恢复界面按钮
+    if (!m_qmapSendBuffer[SendCmdType::BinMotion].isEmpty())
+    {
+        m_qmapSendBuffer[SendCmdType::BinMotion].clear();
+        emit sigMotionTerminate();
+    }
+
+    m_qmapSendBuffer[SendCmdType::BinStopMotion].append(sSendStruct);
+}
+
+
+void ConnectiveHandle::SendLightOnCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond = qbtRespond;
+    sSendStruct.i64StartTime = 0;
+    // 光源开启后 1s 内必须收到下位机完成反馈
+    sSendStruct.u32ExpectedRespondTimeThresh = LIGHT_RESPOND_TIMEOUT_MS;
+
+    qDebug() << "send light on";
+    m_qmapSendBuffer[SendCmdType::LightOn].append(sSendStruct);
+}
+
+
+void ConnectiveHandle::SendLightOffCommand(const QByteArray &qbtData, const QByteArray &qbtRespond)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond = qbtRespond;
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = LIGHT_RESPOND_TIMEOUT_MS;
+
+    qDebug() << "send light off";
+    m_qmapSendBuffer[SendCmdType::LightOff].append(sSendStruct);
+}
+
+
 // ============================ 引擎: 发送/应答/超时 ============================
 
 void ConnectiveHandle::OnEngineTick(void)
@@ -246,6 +353,117 @@ void ConnectiveHandle::OnEngineTick(void)
             emit sigMotionRespondUnnormal();
         }
     }
+
+    // ---- 料仓运动(应答在运动完成后才到, 超时含运动时长) ----
+    QVector<SendCmdStruct> &sBinMotion = m_qmapSendBuffer[SendCmdType::BinMotion];
+    if (!sBinMotion.isEmpty())
+    {
+        SendCmdStruct &sItem = sBinMotion.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sBinMotion.removeFirst();
+            // 料仓运动完成, 通知界面恢复按钮
+            emit sigMotionTerminate();
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 料仓运动应答超时
+            qDebug() << "bin motion respond timeout";
+            sBinMotion.clear();
+            emit sigBinMotionRespondUnnormal();
+            emit sigMotionTerminate();
+        }
+    }
+
+    // ---- 料仓停止 ----
+    QVector<SendCmdStruct> &sBinStop = m_qmapSendBuffer[SendCmdType::BinStopMotion];
+    if (!sBinStop.isEmpty())
+    {
+        SendCmdStruct &sItem = sBinStop.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sBinStop.removeFirst();
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 料仓停止应答超时
+            qDebug() << "bin stop respond timeout";
+            sBinStop.clear();
+            emit sigBinMotionRespondUnnormal();
+        }
+    }
+
+    // ---- 光源开启(1s 内必须收到完成反馈) ----
+    QVector<SendCmdStruct> &sLightOn = m_qmapSendBuffer[SendCmdType::LightOn];
+    if (!sLightOn.isEmpty())
+    {
+        SendCmdStruct &sItem = sLightOn.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sLightOn.removeFirst();
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 光源开启反馈超时
+            qDebug() << "light on respond timeout";
+            sLightOn.clear();
+            emit sigLightRespondUnnormal();
+        }
+    }
+
+    // ---- 光源关闭 ----
+    QVector<SendCmdStruct> &sLightOff = m_qmapSendBuffer[SendCmdType::LightOff];
+    if (!sLightOff.isEmpty())
+    {
+        SendCmdStruct &sItem = sLightOff.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sLightOff.removeFirst();
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 光源关闭反馈超时
+            qDebug() << "light off respond timeout";
+            sLightOff.clear();
+            emit sigLightRespondUnnormal();
+        }
+    }
 }
 
 
@@ -302,6 +520,26 @@ void ConnectiveHandle::RecvMessageHandle(void)
              qbtFrame == m_qmapSendBuffer[SendCmdType::StopMotion].first().qbtRespond)
     {
         m_qmapSendBuffer[SendCmdType::StopMotion].first().bRespond = true;
+    }
+    else if (!m_qmapSendBuffer[SendCmdType::BinMotion].isEmpty() &&
+             qbtFrame == m_qmapSendBuffer[SendCmdType::BinMotion].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::BinMotion].first().bRespond = true;
+    }
+    else if (!m_qmapSendBuffer[SendCmdType::BinStopMotion].isEmpty() &&
+             qbtFrame == m_qmapSendBuffer[SendCmdType::BinStopMotion].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::BinStopMotion].first().bRespond = true;
+    }
+    else if (!m_qmapSendBuffer[SendCmdType::LightOn].isEmpty() &&
+             qbtFrame == m_qmapSendBuffer[SendCmdType::LightOn].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::LightOn].first().bRespond = true;
+    }
+    else if (!m_qmapSendBuffer[SendCmdType::LightOff].isEmpty() &&
+             qbtFrame == m_qmapSendBuffer[SendCmdType::LightOff].first().qbtRespond)
+    {
+        m_qmapSendBuffer[SendCmdType::LightOff].first().bRespond = true;
     }
 
     qDebug() << "remove recv info" << qbtFrame;

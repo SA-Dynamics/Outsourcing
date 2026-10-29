@@ -16,6 +16,10 @@ ControlPanel::ControlPanel(QWidget *parent) :
 
     ui->dialAngleRegulation->setTracking(true);
 
+    ui->pbG1->hide();
+    ui->pbG2->hide();
+    ui->pbFlip->hide();
+
     // 按钮分组
     m_pMotionGroup = new QButtonGroup();
     m_pMotionGroup->setExclusive(true);
@@ -34,7 +38,7 @@ ControlPanel::ControlPanel(QWidget *parent) :
         {ui->pbHCentered, "MotionHCentered", GeneralMotion::MotionParams::MotionIndex::MotionHCentered, {}},
         {ui->pbVCentered, "MotionVCentered", GeneralMotion::MotionParams::MotionIndex::MotionVCentered, {}},
         {ui->pbDisperse, "MotionDisperse", GeneralMotion::MotionParams::MotionIndex::MotionDisperse, {}},
-        {ui->pbFlip, "MotionFlip", GeneralMotion::MotionParams::MotionIndex::MotionFlip, {}},
+        {ui->pbFlip, "MotionFlip", GeneralMotion::MotionParams::MotionIndex::MotionFlip, {}},   
     };
 
     //ui->leAngle->setValidator(new QIntValidator(-90, 90, this));
@@ -59,11 +63,23 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
 
     connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
+        // 统一恢复: 振动盘 / 料仓 / 光源按钮回到空闲态
         ui->pbSendMotion->setEnabled(true);
         ui->pbSendMotionStop->setEnabled(false);
+        ui->pbBinStartMotion->setEnabled(true);
+        ui->pbBinStopMotion->setEnabled(false);
+        ui->pbOpenLightA->setEnabled(true);
+        ui->pbCloseLightA->setEnabled(false);
+        ui->pbOpenLightB->setEnabled(true);
+        ui->pbCloseLihgtB->setEnabled(false);
     });
 
     ui->pbSendMotionStop->setEnabled(false);
+
+    // 料仓与光源按钮初始为空闲态
+    ui->pbBinStopMotion->setEnabled(false);
+    ui->pbCloseLightA->setEnabled(false);
+    ui->pbCloseLihgtB->setEnabled(false);
 }
 
 ControlPanel::~ControlPanel()
@@ -412,4 +428,87 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
         ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
         SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
     }
+}
+
+void ControlPanel::on_pbBinStartMotion_clicked()
+{
+    // 料仓运动: 与振动盘同语义, 下位机运动完成后才回帧(0x08)
+    GeneralMotion::MotionParams sParams;
+    sParams.eIndex = GeneralMotion::MotionParams::MotionIndex::MotionBin;
+    sParams.fVoltage = static_cast<float>(ui->dspbBinVoltage->value());
+    sParams.fFrequency = static_cast<float>(ui->dspbBinFrequency->value());
+    sParams.fTimeUse = static_cast<float>(ui->dspbBinTime->value());
+    sParams.s16AngleOffset = 0;
+    sParams.u8SpeedCoeff = 0;
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->BinMotionProtocol(sParams, qbtData, qbtRespond);
+
+    emit sigBinMotion(qbtData, qbtRespond);
+
+    ui->pbBinStartMotion->setEnabled(false);
+    ui->pbBinStopMotion->setEnabled(true);
+}
+
+void ControlPanel::on_pbBinStopMotion_clicked()
+{
+    // 料仓停止: 通信引擎会清空未完成的料仓运动指令并发 terminate 恢复按钮
+    emit sigBinStopMotion();
+}
+
+void ControlPanel::on_pbOpenLightA_clicked()
+{
+    // 光源 A(索引 1): 亮度 0~100, 保持时间单位 s, 协议层 x10
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_A,
+                                 static_cast<uint8_t>(ui->spLightABrightness->value()),
+                                 static_cast<uint16_t>(ui->spLightATime->value() * 10),
+                                 qbtData, qbtRespond);
+
+    emit sigLightOn(qbtData, qbtRespond);
+
+    ui->pbOpenLightA->setEnabled(false);
+    ui->pbCloseLightA->setEnabled(true);
+}
+
+void ControlPanel::on_pbCloseLightA_clicked()
+{
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOffProtocol(qbtData, qbtRespond);
+
+    emit sigLightOff(qbtData, qbtRespond);
+
+    ui->pbOpenLightA->setEnabled(true);
+    ui->pbCloseLightA->setEnabled(false);
+}
+
+void ControlPanel::on_pbOpenLightB_clicked()
+{
+    // 光源 B(索引 2)
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_B,
+                                 static_cast<uint8_t>(ui->spLightBBrightness->value()),
+                                 static_cast<uint16_t>(ui->spLightBTime->value() * 10),
+                                 qbtData, qbtRespond);
+
+    emit sigLightOn(qbtData, qbtRespond);
+
+    ui->pbOpenLightB->setEnabled(false);
+    ui->pbCloseLihgtB->setEnabled(true);
+}
+
+void ControlPanel::on_pbCloseLihgtB_clicked()
+{
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOffProtocol(qbtData, qbtRespond);
+
+    emit sigLightOff(qbtData, qbtRespond);
+
+    ui->pbOpenLightB->setEnabled(true);
+    ui->pbCloseLihgtB->setEnabled(false);
 }

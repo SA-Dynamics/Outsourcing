@@ -35,7 +35,7 @@
          <item row="0" column="0">
           <layout class="QGridLayout" name="gridLayout_3">
            <item row="4" column="0">
-            <widget class="QPushButton" name="pushButton_9">
+            <widget class="QPushButton" name="pbG1">
              <property name="text">
               <string>G1</string>
              </property>
@@ -157,7 +157,7 @@
             </widget>
            </item>
            <item row="4" column="1">
-            <widget class="QPushButton" name="pushButton_10">
+            <widget class="QPushButton" name="pbG2">
              <property name="text">
               <string>G2</string>
              </property>
@@ -324,42 +324,51 @@
          <item row="0" column="0">
           <layout class="QGridLayout" name="gridLayout_5">
            <item row="1" column="0">
+            <widget class="QLabel" name="label_3">
+             <property name="text">
+              <string>A光源保持时间</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
             <widget class="QLabel" name="label_2">
              <property name="text">
               <string>B光源亮度</string>
              </property>
             </widget>
            </item>
-           <item row="4" column="0">
-            <widget class="QLabel" name="label_8">
-             <property name="text">
-              <string>TextLabel</string>
+           <item row="1" column="1">
+            <widget class="QSpinBox" name="spLightATime">
+             <property name="maximum">
+              <number>9999</number>
              </property>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QSpinBox" name="spinBox"/>
+           <item row="1" column="2">
+            <widget class="QPushButton" name="pbCloseLightA">
+             <property name="text">
+              <string>A光源关闭</string>
+             </property>
+            </widget>
            </item>
-           <item row="3" column="0">
+           <item row="4" column="0">
             <widget class="QLabel" name="label_4">
              <property name="text">
               <string>B光源保持时间</string>
              </property>
             </widget>
            </item>
-           <item row="2" column="1">
-            <widget class="QSpinBox" name="spinBox_3"/>
-           </item>
            <item row="3" column="1">
-            <widget class="QSpinBox" name="spinBox_4"/>
+            <widget class="QSpinBox" name="spLightBBrightness">
+             <property name="maximum">
+              <number>100</number>
+             </property>
+            </widget>
            </item>
-           <item row="1" column="1">
-            <widget class="QSpinBox" name="spinBox_2"/>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label_3">
-             <property name="text">
-              <string>A光源保持时间</string>
+           <item row="4" column="1">
+            <widget class="QSpinBox" name="spLightBTime">
+             <property name="maximum">
+              <number>9999</number>
              </property>
             </widget>
            </item>
@@ -370,7 +379,7 @@
              </property>
             </widget>
            </item>
-           <item row="2" column="2">
+           <item row="3" column="3">
             <spacer name="horizontalSpacer_2">
              <property name="orientation">
               <enum>Qt::Horizontal</enum>
@@ -379,6 +388,47 @@
               <size>
                <width>40</width>
                <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item row="0" column="2">
+            <widget class="QPushButton" name="pbOpenLightA">
+             <property name="text">
+              <string>A光源开启</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="2">
+            <widget class="QPushButton" name="pbCloseLihgtB">
+             <property name="text">
+              <string>B光源关闭</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="2">
+            <widget class="QPushButton" name="pbOpenLightB">
+             <property name="text">
+              <string>B光源开启</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSpinBox" name="spLightABrightness">
+             <property name="maximum">
+              <number>100</number>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="0">
+            <spacer name="verticalSpacer_7">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
               </size>
              </property>
             </spacer>
@@ -394,11 +444,12 @@
         <layout class="QGridLayout" name="gridLayout_8">
          <item row="0" column="0">
           <layout class="QGridLayout" name="gridLayout_7">
-           <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_2"/>
-           </item>
-           <item row="2" column="1">
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_3"/>
+           <item row="3" column="1">
+            <widget class="QPushButton" name="pbBinStartMotion">
+             <property name="text">
+              <string>发送运动</string>
+             </property>
+            </widget>
            </item>
            <item row="1" column="0">
             <widget class="QLabel" name="label_10">
@@ -407,6 +458,22 @@
              </property>
             </widget>
            </item>
+           <item row="5" column="1">
+            <spacer name="verticalSpacer">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item row="1" column="1">
+            <widget class="QDoubleSpinBox" name="dspbBinFrequency"/>
+           </item>
            <item row="0" column="0">
             <widget class="QLabel" name="label_9">
              <property name="text">
@@ -414,8 +481,18 @@
              </property>
             </widget>
            </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="label_11">
+             <property name="text">
+              <string>时间:</string>
+             </property>
+            </widget>
+           </item>
            <item row="0" column="1">
-            <widget class="QDoubleSpinBox" name="doubleSpinBox"/>
+            <widget class="QDoubleSpinBox" name="dspbBinVoltage"/>
+           </item>
+           <item row="2" column="1">
+            <widget class="QDoubleSpinBox" name="dspbBinTime"/>
            </item>
            <item row="0" column="2">
             <spacer name="horizontalSpacer_3">
@@ -430,25 +507,12 @@
              </property>
             </spacer>
            </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="label_11">
+           <item row="4" column="1">
+            <widget class="QPushButton" name="pbBinStopMotion">
              <property name="text">
-              <string>时间:</string>
+              <string>停止</string>
              </property>
             </widget>
-           </item>
-           <item row="3" column="1">
-            <spacer name="verticalSpacer">
-             <property name="orientation">
-              <enum>Qt::Vertical</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>20</width>
-               <height>40</height>
-              </size>
-             </property>
-            </spacer>
            </item>
           </layout>
          </item>

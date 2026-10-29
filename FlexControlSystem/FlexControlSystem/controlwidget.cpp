@@ -150,11 +150,24 @@ void ControlWidget::SetConnectSlot(const bool bSet)
         connect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
         connect(m_pControlWidget, SIGNAL(sigMotion(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendMotionCommand(QByteArray, QByteArray)));
         connect(m_pControlWidget, SIGNAL(sigStopMotion()), m_ConnectiveHandler, SLOT(SendStopMotionCommand()));
+        // 料仓
+        connect(m_pControlWidget, SIGNAL(sigBinMotion(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendBinMotionCommand(QByteArray, QByteArray)));
+        connect(m_pControlWidget, SIGNAL(sigBinStopMotion()), m_ConnectiveHandler, SLOT(SendBinStopMotionCommand()));
+        // 光源
+        connect(m_pControlWidget, SIGNAL(sigLightOn(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendLightOnCommand(QByteArray, QByteArray)));
+        connect(m_pControlWidget, SIGNAL(sigLightOff(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendLightOffCommand(QByteArray, QByteArray)));
+
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigHeartBeatUnnormal, this, [this]() {
             OnConnectiveUnnormal("HeartBeat");
         });
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigMotionRespondUnnormal, this, [this]() {
             OnConnectiveUnnormal("MotionRespond");
+        });
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigBinMotionRespondUnnormal, this, [this]() {
+            OnConnectiveUnnormal("BinMotionRespond");
+        });
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigLightRespondUnnormal, this, [this]() {
+            OnConnectiveUnnormal("LightRespond");
         });
 
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigMotionTerminate, this, [this]() {
@@ -195,6 +208,14 @@ void ControlWidget::OnConnectiveUnnormal(const QString &qstrName)
     else if (qstrName == "MotionRespond")
     {
         QMessageBox::critical(this, "错误", "动作反馈超时");
+    }
+    else if (qstrName == "BinMotionRespond")
+    {
+        QMessageBox::critical(this, "错误", "料仓反馈超时");
+    }
+    else if (qstrName == "LightRespond")
+    {
+        QMessageBox::critical(this, "错误", "光源反馈超时");
     }
 
     emit m_pControlWidget->sigMotionTerminate();

@@ -196,3 +196,153 @@ void GeneralProtocol::MotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtResp
     qbtRespond.append(u8FRAME_TAIL2);
 }
 
+
+// 料仓运动(0x07): 数据域 7 字节, 时间域偏移与振动盘帧一致([9][10], 单位 100ms)
+void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sParams,
+                                        QByteArray &qbtSendCmd,
+                                        QByteArray &qbtRespond)
+{
+    // 上位机发送
+    qbtSendCmd.append(u8FRAME_HEAD1);
+    qbtSendCmd.append(u8FRAME_HEAD2);
+
+    qbtSendCmd.append(u8SW_BIN_MOTION_CMD);
+    qbtSendCmd.append(0x7);
+    // 料仓运动索引固定为 1(协议定义)
+    qbtSendCmd.append(uint8_t(0x01));
+
+    uint16_t u16Temp = 0;
+    u16Temp = static_cast<uint16_t>(sParams.fVoltage * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    u16Temp = static_cast<uint16_t>(sParams.fFrequency * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    AddCheckSum(qbtSendCmd);
+
+    qbtSendCmd.append(u8FRAME_TAIL1);
+    qbtSendCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "bin motion data:" << qbtSendCmd.toHex();
+
+    // 下位机反馈: 运动完成后发送, 帧内带回运动索引
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_BIN_MOTION_RESPOND);
+    qbtRespond.append(0x2);
+    qbtRespond.append(uint8_t(0x01));
+    qbtRespond.append(0x1);
+
+    AddCheckSum(qbtRespond);
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+
+
+// 料仓停止(0x09/0x0A): 双方均无数据域, 校验按同一规则计算
+void GeneralProtocol::BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
+{
+    // 上位机发送
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_BIN_MOTION_STOP_CMD);
+    qbtCmd.append(uint8_t(0));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "bin stop data:" << qbtCmd.toHex();
+
+    // 下位机应答
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_BIN_MOTION_STOP_RESPOND);
+    qbtRespond.append(uint8_t(0));
+
+    AddCheckSum(qbtRespond);
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+
+
+// 打开光源(0x0B): 亮度 0~100, 保持时间单位 100ms; 应答 0x0C 带回光源索引
+void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
+                                      const uint16_t u16KeepTime,
+                                      QByteArray &qbtSendCmd, QByteArray &qbtRespond)
+{
+    // 上位机发送
+    qbtSendCmd.append(u8FRAME_HEAD1);
+    qbtSendCmd.append(u8FRAME_HEAD2);
+
+    qbtSendCmd.append(u8SW_LIGHT_ON_CMD);
+    qbtSendCmd.append(0x4);
+    qbtSendCmd.append(u8Index);
+    qbtSendCmd.append(u8Brightness);
+    qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime & 0xFF));
+
+    AddCheckSum(qbtSendCmd);
+
+    qbtSendCmd.append(u8FRAME_TAIL1);
+    qbtSendCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "light on data:" << qbtSendCmd.toHex();
+
+    // 下位机应答: 光源索引, 上位机要求 1s 内收到
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_LIGHT_ON_RESPOND);
+    qbtRespond.append(0x1);
+    qbtRespond.append(u8Index);
+
+    AddCheckSum(qbtRespond);
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+
+
+// 关闭光源(0x0D/0x0E): 双方均无数据域, A/B 共用同一应答帧
+void GeneralProtocol::LightOffProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
+{
+    // 上位机发送
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_LIGHT_OFF_CMD);
+    qbtCmd.append(uint8_t(0));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "light off data:" << qbtCmd.toHex();
+
+    // 下位机应答
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_LIGHT_OFF_RESPOND);
+    qbtRespond.append(uint8_t(0));
+
+    AddCheckSum(qbtRespond);
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+

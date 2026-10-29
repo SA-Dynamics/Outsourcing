@@ -58,6 +58,12 @@ signals:
     void sigMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
     void sigStopMotion();
     void sigMotionTerminate();
+    // 料仓: 下位机运动完成后回帧, 超时按时长+冗余计算
+    void sigBinMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
+    void sigBinStopMotion();
+    // 光源: 开启后 1s 内必须收到下位机完成反馈
+    void sigLightOn(const QByteArray &qbtData, const QByteArray &qbtRespond);
+    void sigLightOff(const QByteArray &qbtData, const QByteArray &qbtRespond);
 
 private slots:
     void on_dspbVoltage_valueChanged(double arg1);
@@ -67,6 +73,12 @@ private slots:
     void on_pbSendMotionStop_clicked();
     void on_dialAngleRegulation_valueChanged(int value);
     void on_hsldSpeed_valueChanged(int value);
+    void on_pbBinStartMotion_clicked();
+    void on_pbBinStopMotion_clicked();
+    void on_pbOpenLightA_clicked();
+    void on_pbCloseLightA_clicked();
+    void on_pbOpenLightB_clicked();
+    void on_pbCloseLihgtB_clicked();
 };
 
 #endif // CONTROLPANEL_H

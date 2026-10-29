@@ -30,6 +30,14 @@ public slots:
     void SendMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
     void SendStopMotionCommand();
 
+    // 料仓: 运动完成后下位机才回帧(与振动盘同语义), 超时按时长+冗余计算
+    void SendBinMotionCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
+    void SendBinStopMotionCommand();
+
+    // 光源: 开启后 1s 内必须收到下位机完成反馈
+    void SendLightOnCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
+    void SendLightOffCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
+
     // 线程收尾: 在对象所属线程内停止全部定时器并关闭底层通道
     // 由 QThread::finished 直接触发(同线程直连执行), 避免跨线程 killTimer 警告
     void Shutdown(void);
@@ -39,6 +47,8 @@ signals:
     void sigConnectiveState(const bool &bState);
     void sigHeartBeatUnnormal();
     void sigMotionRespondUnnormal();
+    void sigBinMotionRespondUnnormal();
+    void sigLightRespondUnnormal();
     void sigMotionTerminate();
 
 protected:
@@ -80,7 +90,8 @@ private:
         WaitCheckSum1, WaitCheckSum2, WaitTail1, WaitTail2
     };
 
-    enum class SendCmdType { HeartBeat, MotionCmd, StopMotion };
+    enum class SendCmdType { HeartBeat, MotionCmd, StopMotion,
+                             BinMotion, BinStopMotion, LightOn, LightOff };
 
     struct SendCmdStruct
     {
