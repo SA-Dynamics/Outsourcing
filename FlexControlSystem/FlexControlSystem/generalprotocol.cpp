@@ -316,15 +316,27 @@ void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Bri
 }
 
 
-// 关闭光源(0x0D/0x0E): 双方均无数据域, A/B 共用同一应答帧
-void GeneralProtocol::LightOffProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
+// 关闭光源(0x0D/0x0E): u8Index = 1/2 只关指定光源, 0 关闭全部
+// 两路光源独立控制, 所以关 A 必须能带上索引, 否则会连带把 B 一起关掉
+void GeneralProtocol::LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond)
 {
     // 上位机发送
     qbtCmd.append(u8FRAME_HEAD1);
     qbtCmd.append(u8FRAME_HEAD2);
 
     qbtCmd.append(u8SW_LIGHT_OFF_CMD);
-    qbtCmd.append(uint8_t(0));
+
+    if (u8Index == u8SW_LIGHT_INDEX_ALL)
+    {
+        // 关闭全部: 保持协议原始格式(长度 0, 无数据域)
+        qbtCmd.append(uint8_t(0));
+    }
+    else
+    {
+        // 关闭指定光源: 数据域 1 字节索引(协议扩展, 下位机两种都兼容)
+        qbtCmd.append(uint8_t(1));
+        qbtCmd.append(u8Index);
+    }
 
     AddCheckSum(qbtCmd);
 

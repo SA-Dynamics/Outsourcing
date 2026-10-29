@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QSettings>
+#include <QSignalBlocker>
 
 
 
@@ -139,6 +140,24 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
 
         Settings.endGroup();
     }
+
+    // 料仓参数
+    Settings.beginGroup("BinMotion");
+    ui->dspbBinVoltage->setValue(Settings.value("voltage", ui->dspbBinVoltage->value()).toDouble());
+    ui->dspbBinFrequency->setValue(Settings.value("frequency", ui->dspbBinFrequency->value()).toDouble());
+    ui->dspbBinTime->setValue(Settings.value("timeuse", ui->dspbBinTime->value()).toDouble());
+    Settings.endGroup();
+
+    // 光源参数
+    Settings.beginGroup("LightA");
+    ui->spLightABrightness->setValue(Settings.value("brightness", ui->spLightABrightness->value()).toInt());
+    ui->spLightATime->setValue(Settings.value("timeuse", ui->spLightATime->value()).toInt());
+    Settings.endGroup();
+
+    Settings.beginGroup("LightB");
+    ui->spLightBBrightness->setValue(Settings.value("brightness", ui->spLightBBrightness->value()).toInt());
+    ui->spLightBTime->setValue(Settings.value("timeuse", ui->spLightBTime->value()).toInt());
+    Settings.endGroup();
 }
 
 
@@ -301,6 +320,24 @@ void ControlPanel::SaveSettings(void)
 
         Settings.endGroup();
     }
+
+    // 料仓参数
+    Settings.beginGroup("BinMotion");
+    Settings.setValue("voltage", ui->dspbBinVoltage->value());
+    Settings.setValue("frequency", ui->dspbBinFrequency->value());
+    Settings.setValue("timeuse", ui->dspbBinTime->value());
+    Settings.endGroup();
+
+    // 光源参数
+    Settings.beginGroup("LightA");
+    Settings.setValue("brightness", ui->spLightABrightness->value());
+    Settings.setValue("timeuse", ui->spLightATime->value());
+    Settings.endGroup();
+
+    Settings.beginGroup("LightB");
+    Settings.setValue("brightness", ui->spLightBBrightness->value());
+    Settings.setValue("timeuse", ui->spLightBTime->value());
+    Settings.endGroup();
 }
 
 
@@ -415,18 +452,54 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
         return;
     }
 
-    m_lstMotionButtons = pOther->m_lstMotionButtons;
-
-    for (const ButtonParams &Button : m_lstMotionButtons)
+    // 按名字逐按钮拷贝参数, 保留本面板自己的 pButton/eMotion:
+    // 整表赋值会把对方面板的按钮指针拷过来, 导致本面板运动按钮永远选不中
+    for (ButtonParams &Button : m_lstMotionButtons)
     {
-        // 将当前按钮的运动参数更新到界面上
-        ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
-        ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
-        ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+        for (const ButtonParams &Other : pOther->m_lstMotionButtons)
+        {
+            if (Button.qstrName == Other.qstrName)
+            {
+                Button.qlstMotionParams = Other.qlstMotionParams;
+                break;
+            }
+        }
+    }
 
-        ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
-        ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
-        SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
+    // 料仓与光源参数同步拷贝
+    ui->dspbBinVoltage->setValue(pOther->ui->dspbBinVoltage->value());
+    ui->dspbBinFrequency->setValue(pOther->ui->dspbBinFrequency->value());
+    ui->dspbBinTime->setValue(pOther->ui->dspbBinTime->value());
+    ui->spLightABrightness->setValue(pOther->ui->spLightABrightness->value());
+    ui->spLightATime->setValue(pOther->ui->spLightATime->value());
+    ui->spLightBBrightness->setValue(pOther->ui->spLightBBrightness->value());
+    ui->spLightBTime->setValue(pOther->ui->spLightBTime->value());
+
+    // 界面刷新所有按钮对应的参数(控件组只有一套, 依次刷新, 最终停留为最后
+    // 一个按钮的值); 刷新期间必须屏蔽 valueChanged 信号, 否则槽会把遍历中的
+    // 值写进"当前选中按钮"的存储参数, 造成数据污染
+    {
+        const QSignalBlocker BlockV(ui->dspbVoltage);
+        const QSignalBlocker BlockF(ui->dspbFrequency);
+        const QSignalBlocker BlockT(ui->dspbTime);
+        const QSignalBlocker BlockS(ui->hsldSpeed);
+        const QSignalBlocker BlockD(ui->dialAngleRegulation);
+
+        for (const ButtonParams &Button : m_lstMotionButtons)
+        {
+            if (Button.qlstMotionParams.isEmpty())
+            {
+                continue;
+            }
+
+            ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
+            ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
+            ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+
+            ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
+            ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
+            SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
+        }
     }
 }
 
@@ -464,7 +537,7 @@ void ControlPanel::on_pbOpenLightA_clicked()
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_A,
                                  static_cast<uint8_t>(ui->spLightABrightness->value()),
-                                 static_cast<uint16_t>(ui->spLightATime->value() * 10),
+                                 static_cast<uint16_t>(qMin(ui->spLightATime->value() * 10, 65535)),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);
@@ -477,7 +550,8 @@ void ControlPanel::on_pbCloseLightA_clicked()
 {
     QByteArray qbtData;
     QByteArray qbtRespond;
-    m_pProtocol->LightOffProtocol(qbtData, qbtRespond);
+    // 只关 A: 带上索引, 不能把 B 一起关掉
+    m_pProtocol->LightOffProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_A, qbtData, qbtRespond);
 
     emit sigLightOff(qbtData, qbtRespond);
 
@@ -492,7 +566,7 @@ void ControlPanel::on_pbOpenLightB_clicked()
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_B,
                                  static_cast<uint8_t>(ui->spLightBBrightness->value()),
-                                 static_cast<uint16_t>(ui->spLightBTime->value() * 10),
+                                 static_cast<uint16_t>(qMin(ui->spLightBTime->value() * 10, 65535)),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);
@@ -505,7 +579,8 @@ void ControlPanel::on_pbCloseLihgtB_clicked()
 {
     QByteArray qbtData;
     QByteArray qbtRespond;
-    m_pProtocol->LightOffProtocol(qbtData, qbtRespond);
+    // 只关 B
+    m_pProtocol->LightOffProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_B, qbtData, qbtRespond);
 
     emit sigLightOff(qbtData, qbtRespond);
 

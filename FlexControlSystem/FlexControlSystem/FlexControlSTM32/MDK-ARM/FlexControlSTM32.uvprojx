@@ -414,6 +414,16 @@
               <FilePath>..\Application\MotorControl.c</FilePath>
             </File>
             <File>
+              <FileName>BinControl.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\BinControl.c</FilePath>
+            </File>
+            <File>
+              <FileName>LightControl.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\LightControl.c</FilePath>
+            </File>
+            <File>
               <FileName>Network.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\Network.c</FilePath>

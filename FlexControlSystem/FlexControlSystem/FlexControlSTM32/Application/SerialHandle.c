@@ -133,23 +133,66 @@ static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 
 
 
+// 解析光源开启指令: 索引1B + 亮度1B + 保持时间2B(单位100ms)
+static void ParseLightData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	pInfoWrite->u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
+
+	pInfoWrite->u8LightBrightness = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3) % UART_RECV_DATA_BUFFER_SIZE];
+
+	pInfoWrite->u16LightKeepTime = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE] << 8) |
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE]);
+}
+
+
+
 void ParseUartData(SerialDataType *pSerial)
 {
 	SerialInfo sInfo;
 	uint16_t u16CheckSum = 0;
-	
+
+	memset(&sInfo, 0, sizeof(sInfo));
+
 	// 判断帧类型
-	switch (pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16DataIndex]) 
+	switch (pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16DataIndex])
 	{
 		case 0x01:
 			sInfo.eInfo = INFO_HEART;
 			break;
-		
+
 		case 0x03:
 			sInfo.eInfo = INFO_MOTION;
 			ParseMotionData(&sInfo, pSerial);
 			break;
-		
+
+		case 0x05:
+			sInfo.eInfo = INFO_STOP_MOTION;
+			break;
+
+		// 料仓指令数据域布局与振动盘一致(索引+电压+频率+时间), 解析函数复用
+		case 0x07:
+			sInfo.eInfo = INFO_BIN_MOTION;
+			ParseMotionData(&sInfo, pSerial);
+			break;
+
+		case 0x09:
+			sInfo.eInfo = INFO_STOP_BIN_MOTION;
+			break;
+
+		case 0x0B:
+			sInfo.eInfo = INFO_LIGHT_ON;
+			ParseLightData(&sInfo, pSerial);
+			break;
+
+		case 0x0D:
+			sInfo.eInfo = INFO_LIGHT_OFF;
+			// 协议 N=0 为关闭全部; 兼容扩展: N>=1 时首字节为光源索引, 只关指定路
+			if (pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE] >= 1)
+			{
+				sInfo.u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
+			}
+			break;
+
 		default:
 			return;
 	}
@@ -336,14 +379,14 @@ static void SendHeartBeat(void)
 static void SendMotionFinish(uint8_t u8Index)
 {
 	uint8_t u8Buffer[MOTION_FINISH_RESPOND_SIZE] = {0};
-	
+
 	u8Buffer[0] = 0x55;
 	u8Buffer[1] = 0xAA;
 	u8Buffer[2] = 0x04;
 	u8Buffer[3] = 0x02;
 	u8Buffer[4] = u8Index;
 	u8Buffer[5] = 0x01;
-	
+
 	uint16_t u16CheckSum = 0;
 	// 校验数据
 	for (uint8_t i = 0; i < u8Buffer[3] + 2; i++)
@@ -351,14 +394,77 @@ static void SendMotionFinish(uint8_t u8Index)
 		u16CheckSum += u8Buffer[2 + i];
 	}
 	u16CheckSum = ~u16CheckSum + 1;
-	
+
 	u8Buffer[6] = u16CheckSum >> 8;
 	u8Buffer[7] = u16CheckSum & 0xFF;
-	
+
 	u8Buffer[8] = 0xAA;
 	u8Buffer[9] = 0x55;
-	
+
 	SaveSendByteArray(u8Buffer, MOTION_FINISH_RESPOND_SIZE);
+}
+
+
+// 通用应答组帧: 55 AA | cmd | len | data | 校验高 | 校验低 | AA 55
+// 校验 = cmd 起累加取反加一, 与上位机 AddCheckSum 规则一致
+#define RESPOND_FRAME_MAX_SIZE		16
+static void SaveRespondFrame(const uint8_t u8Cmd, const uint8_t *pData, const uint8_t u8DataLen)
+{
+	uint8_t u8Buffer[RESPOND_FRAME_MAX_SIZE] = {0};
+	uint16_t u16CheckSum = 0;
+
+	u8Buffer[0] = 0x55;
+	u8Buffer[1] = 0xAA;
+	u8Buffer[2] = u8Cmd;
+	u8Buffer[3] = u8DataLen;
+
+	if (pData != NULL && u8DataLen > 0)
+	{
+		memcpy(&u8Buffer[4], pData, u8DataLen);
+	}
+
+	for (uint8_t i = 0; i < u8DataLen + 2; i++)
+	{
+		u16CheckSum += u8Buffer[2 + i];
+	}
+	u16CheckSum = ~u16CheckSum + 1;
+
+	u8Buffer[4 + u8DataLen] = u16CheckSum >> 8;
+	u8Buffer[5 + u8DataLen] = u16CheckSum & 0xFF;
+
+	u8Buffer[6 + u8DataLen] = 0xAA;
+	u8Buffer[7 + u8DataLen] = 0x55;
+
+	SaveSendByteArray(u8Buffer, 8 + u8DataLen);
+}
+
+
+// 料仓运动完成反馈: 0x08, 数据 = 索引 + 0x01
+static void SendBinMotionFinish(uint8_t u8Index)
+{
+	uint8_t u8Data[2] = {u8Index, 0x01};
+	SaveRespondFrame(0x08, u8Data, 2);
+}
+
+
+// 料仓停止反馈: 0x0A, 无数据
+static void SendBinMotionStop(void)
+{
+	SaveRespondFrame(0x0A, NULL, 0);
+}
+
+
+// 光源开启反馈: 0x0C, 数据 = 光源索引
+static void SendLightOn(uint8_t u8Index)
+{
+	SaveRespondFrame(0x0C, &u8Index, 1);
+}
+
+
+// 光源关闭反馈: 0x0E, 无数据
+static void SendLightOff(void)
+{
+	SaveRespondFrame(0x0E, NULL, 0);
 }
 
 
@@ -370,12 +476,32 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 		case RESPOND_HEART:
 			SendHeartBeat();
 			break;
-		
+
 		case RESPOND_MOTION_FINISH:
 			SendMotionFinish(*(uint8_t *)pParams);
 			break;
-		
-		
+
+		case RESPOND_MOTION_STOP:
+			// 停止反馈: 0x06, 无数据
+			SaveRespondFrame(0x06, NULL, 0);
+			break;
+
+		case RESPOND_BIN_MOTION_FINISH:
+			SendBinMotionFinish(*(uint8_t *)pParams);
+			break;
+
+		case RESPOND_BIN_MOTION_STOP:
+			SendBinMotionStop();
+			break;
+
+		case RESPOND_LIGHT_ON:
+			SendLightOn(*(uint8_t *)pParams);
+			break;
+
+		case RESPOND_LIGHT_OFF:
+			SendLightOff();
+			break;
+
 		default:
 			break;
 	}

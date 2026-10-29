@@ -35,6 +35,7 @@ namespace GeneralProtocolItems
     // 光源索引
     constexpr uint8_t u8SW_LIGHT_INDEX_A = 0x01;
     constexpr uint8_t u8SW_LIGHT_INDEX_B = 0x02;
+    constexpr uint8_t u8SW_LIGHT_INDEX_ALL = 0x00;      // 仅关闭光源使用: 关闭全部
 
     constexpr uint8_t u8SW_MOTION_UP = 0x01;
     constexpr uint8_t u8SW_MOTION_DOWN = 0x02;
@@ -78,7 +79,7 @@ public:
                          const uint16_t u16KeepTime,
                          QByteArray &qbtSendCmd, QByteArray &qbtRespond) override;
 
-    void LightOffProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond) override;
+    void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond) override;
 
 private:
     GeneralProtocol() = default;

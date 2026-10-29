@@ -1,6 +1,8 @@
 #include "FlexControl.h"
 #include "SerialHandle.h"
 #include "MotorControl.h"
+#include "BinControl.h"
+#include "LightControl.h"
 #include "Network.h"
 #include "Timer.h"
 
@@ -49,6 +51,61 @@ void CbMotionStopFinish(void)
 }
 
 
+// 料仓运动入队处理
+void BinMotionHandler(const SerialInfo *pInfo)
+{
+	BinMotionParams sParams;
+	sParams.fVoltage = pInfo->fMotionVoltage;
+	sParams.fFrequency = pInfo->fMotionFrequency;
+	sParams.fTimeUse = pInfo->fMotionTimeUse;
+
+	SendBinInfo(&sParams);
+}
+
+
+// 料仓运动完成回调
+void CbBinMotionFinish(void)
+{
+	// 0x08: 索引固定为 1
+	uint8_t u8Index = 0x01;
+	SendSerialRespond(RESPOND_BIN_MOTION_FINISH, (void *)&u8Index);
+}
+
+
+// 料仓停止完成回调
+void CbBinMotionStopFinish(void)
+{
+	SendSerialRespond(RESPOND_BIN_MOTION_STOP, NULL);
+}
+
+
+// 光源开启入队处理
+void LightOnHandler(const SerialInfo *pInfo)
+{
+	LightParams sParams;
+	sParams.u8Index = pInfo->u8LightIndex;
+	sParams.u8Brightness = pInfo->u8LightBrightness;
+	sParams.u16KeepTime = pInfo->u16LightKeepTime;
+
+	SendLightInfo(&sParams);
+}
+
+
+// 光源开启完成回调: 必须在开启后 1s 内发出
+void CbLightOnFinish(const uint8_t u8Index)
+{
+	SendSerialRespond(RESPOND_LIGHT_ON, (void *)&u8Index);
+}
+
+
+// 光源关闭完成回调
+void CbLightOffFinish(const uint8_t u8Index)
+{
+	(void)u8Index;
+	SendSerialRespond(RESPOND_LIGHT_OFF, NULL);
+}
+
+
 void SerialRecvInfoHandle(void)
 {
 	static SerialInfo sSerialInfo;
@@ -71,7 +128,24 @@ void SerialRecvInfoHandle(void)
 			case INFO_STOP_MOTION:
 				MotorControlStop();
 				break;
-			
+
+			case INFO_BIN_MOTION:
+				BinMotionHandler(&sSerialInfo);
+				break;
+
+			case INFO_STOP_BIN_MOTION:
+				BinControlStop();
+				break;
+
+			case INFO_LIGHT_ON:
+				LightOnHandler(&sSerialInfo);
+				break;
+
+			case INFO_LIGHT_OFF:
+				// u8LightIndex = 0 关闭全部; 1/2 只关指定光源
+				LightControlStop(sSerialInfo.u8LightIndex);
+				break;
+
 			default:
 				break;
 		}
@@ -106,6 +180,8 @@ void FlexControlInit(void)
 {
 	SerialHandleInit();
 	MotionControlInit();
+	BinControlInit();
+	LightControlInit();
 
 	// 首次初始化网络, 失败不阻塞其余模块, 由 NetworkRetryHandle 定期重试
 //	g_bNetworkInitSuccess = NetworkInit();
@@ -127,6 +203,8 @@ void FlexControlHandle(void)
 //	}
 
 	MotorControl();
+	BinControl();
+	LightControl();
 }
 
 

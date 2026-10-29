@@ -67,9 +67,10 @@ public:
     { Q_UNUSED(u8Index); Q_UNUSED(u8Brightness); Q_UNUSED(u16KeepTime);
       Q_UNUSED(qbtSendCmd); Q_UNUSED(qbtRespond); }
 
-    // 关闭光源(0x0D/0x0E): 无数据域, A/B 光源共用同一应答帧
-    virtual void LightOffProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
-    { Q_UNUSED(qbtCmd); Q_UNUSED(qbtRespond); }
+    // 关闭光源(0x0D/0x0E): u8Index = 1/2 只关指定光源, 0 关闭全部
+    // 应答 0x0E 无数据域, 关哪一路都是同一帧
+    virtual void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond)
+    { Q_UNUSED(u8Index); Q_UNUSED(qbtCmd); Q_UNUSED(qbtRespond); }
 };
 
 
