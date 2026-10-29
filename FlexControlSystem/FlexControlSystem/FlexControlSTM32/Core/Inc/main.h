@@ -70,6 +70,8 @@ void Error_Handler(void);
 #define EnableRightTop_GPIO_Port GPIOB
 #define EnableLeftTop_Pin GPIO_PIN_15
 #define EnableLeftTop_GPIO_Port GPIOB
+#define EnableBin_Pin GPIO_PIN_8
+#define EnableBin_GPIO_Port GPIOA
 #define SPI_CS_Pin GPIO_PIN_15
 #define SPI_CS_GPIO_Port GPIOA
 
