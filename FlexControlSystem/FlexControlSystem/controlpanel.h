@@ -47,6 +47,9 @@ private:
     ProtocolHandle *m_pProtocol;
     QString m_qstrCurrentSettingPath;
 
+    // 只读面板(模式数据面板): 其信号未连接通信引擎, 只能编辑/保存参数, 不允许下发指令
+    bool m_bReadOnly = false;
+
     void SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle);
     int16_t ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue);
 

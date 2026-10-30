@@ -56,6 +56,12 @@ uint8_t GeneralProtocol::GetMotionIndexCmd(const GeneralMotion::MotionParams::Mo
             u8Value = 9;
             break;
 
+        // 料仓: 走独立的 0x07 协议(BinMotionProtocol 内索引写死 0x01),
+        // 这里补上分支, 避免将来复用本函数时 MotionBin 落进 default 变成 0
+        case GeneralMotion::MotionParams::MotionIndex::MotionBin:
+            u8Value = 10;
+            break;
+
         default:
             break;
     }

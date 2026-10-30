@@ -13,6 +13,12 @@ ControlPanel::ControlPanel(QWidget *parent) :
 {
 //    ui->setupUi(this);
 
+    // ⚠️ 这里传的是 parent 而不是 this(历史写法, 为了把 UI 直接铺到 QTabWidget 上)。
+    // 副作用: setupUi() 末尾的 QMetaObject::connectSlotsByName(o) 里的 o 就是这里的 parent,
+    // 它只会拿 **parent 的元对象** 去匹配 on_<控件名>_<信号>, 而槽都定义在 ControlPanel 上,
+    // 永远匹配不到 → **所有"转到槽"自动连接全部失效**。
+    // 因此本类每个 on_xxx_clicked/valueChanged 都必须手动 connect, 见下面的"连接按钮事件"段。
+    // 若哪天改成 setupUi(this), 必须同时把本控件正确 addTab 进 QTabWidget, 否则界面会错位。
     ui->setupUi(parent);
 
     ui->dialAngleRegulation->setTracking(true);
@@ -58,12 +64,31 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->dspbVoltage, SIGNAL(valueChanged(double)), this, SLOT(on_dspbVoltage_valueChanged(double)));
     connect(ui->dspbFrequency, SIGNAL(valueChanged(double)), this, SLOT(on_dspbFrequency_valueChanged(double)));
     connect(ui->dspbTime, SIGNAL(valueChanged(double)), this, SLOT(on_dspbTime_valueChanged(double)));
+    // 注意: 因上面 setupUi(parent) 的缘故, 这里的 connect 不能省 ——
+    // "转到槽"生成的 on_xxx_clicked 不会自动生效, 新增按钮必须在此补一行
     connect(ui->pbSendMotion, SIGNAL(clicked()), this, SLOT(on_pbSendMotion_clicked()));
+    connect(ui->pbSendMotionStop, SIGNAL(clicked()), this, SLOT(on_pbSendMotionStop_clicked()));
 
     connect(ui->dialAngleRegulation, &QDial::valueChanged, this, &ControlPanel::on_dialAngleRegulation_valueChanged);
     connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
 
+    // 料仓
+    connect(ui->pbBinStartMotion, SIGNAL(clicked()), this, SLOT(on_pbBinStartMotion_clicked()));
+    connect(ui->pbBinStopMotion, SIGNAL(clicked()), this, SLOT(on_pbBinStopMotion_clicked()));
+
+    // 光源(注意 pbCloseLihgtB 的 Lihgt 是 ui 文件里的历史拼写)
+    connect(ui->pbOpenLightA, SIGNAL(clicked()), this, SLOT(on_pbOpenLightA_clicked()));
+    connect(ui->pbCloseLightA, SIGNAL(clicked()), this, SLOT(on_pbCloseLightA_clicked()));
+    connect(ui->pbOpenLightB, SIGNAL(clicked()), this, SLOT(on_pbOpenLightB_clicked()));
+    connect(ui->pbCloseLihgtB, SIGNAL(clicked()), this, SLOT(on_pbCloseLihgtB_clicked()));
+
     connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
+        // 只读面板(模式数据)的按钮被 SetReadOnly 禁用, 不能被这里"恢复"回可点状态
+        if (m_bReadOnly)
+        {
+            return;
+        }
+
         // 统一恢复: 振动盘 / 料仓 / 光源按钮回到空闲态
         ui->pbSendMotion->setEnabled(true);
         ui->pbSendMotionStop->setEnabled(false);
@@ -91,10 +116,20 @@ ControlPanel::~ControlPanel()
 
 void ControlPanel::SetReadOnly(const bool bReadOnly)
 {
+    m_bReadOnly = bReadOnly;
+
     if (bReadOnly)
     {
+        // 只读面板(模式数据)不连接通信引擎: 这些按钮点了也不会下发, 必须禁用,
+        // 否则点击后按钮会被置灰且永远收不到 sigMotionTerminate 恢复, 表现为"点了没反应"
         ui->pbSendMotion->setEnabled(false);
         ui->pbSendMotionStop->setEnabled(false);
+        ui->pbBinStartMotion->setEnabled(false);
+        ui->pbBinStopMotion->setEnabled(false);
+        ui->pbOpenLightA->setEnabled(false);
+        ui->pbCloseLightA->setEnabled(false);
+        ui->pbOpenLightB->setEnabled(false);
+        ui->pbCloseLihgtB->setEnabled(false);
     }
 }
 
@@ -505,6 +540,14 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
 
 void ControlPanel::on_pbBinStartMotion_clicked()
 {
+    qDebug() << "send bin motion, send Enable:" << m_bReadOnly;
+
+    // 只读面板不下发指令: 其信号未连接通信引擎, 发出去无人接收
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     // 料仓运动: 与振动盘同语义, 下位机运动完成后才回帧(0x08)
     GeneralMotion::MotionParams sParams;
     sParams.eIndex = GeneralMotion::MotionParams::MotionIndex::MotionBin;
@@ -518,6 +561,7 @@ void ControlPanel::on_pbBinStartMotion_clicked()
     QByteArray qbtRespond;
     m_pProtocol->BinMotionProtocol(sParams, qbtData, qbtRespond);
 
+
     emit sigBinMotion(qbtData, qbtRespond);
 
     ui->pbBinStartMotion->setEnabled(false);
@@ -526,12 +570,22 @@ void ControlPanel::on_pbBinStartMotion_clicked()
 
 void ControlPanel::on_pbBinStopMotion_clicked()
 {
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     // 料仓停止: 通信引擎会清空未完成的料仓运动指令并发 terminate 恢复按钮
     emit sigBinStopMotion();
 }
 
 void ControlPanel::on_pbOpenLightA_clicked()
 {
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     // 光源 A(索引 1): 亮度 0~100, 保持时间单位 s, 协议层 x10
     QByteArray qbtData;
     QByteArray qbtRespond;
@@ -548,6 +602,11 @@ void ControlPanel::on_pbOpenLightA_clicked()
 
 void ControlPanel::on_pbCloseLightA_clicked()
 {
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     QByteArray qbtData;
     QByteArray qbtRespond;
     // 只关 A: 带上索引, 不能把 B 一起关掉
@@ -561,6 +620,11 @@ void ControlPanel::on_pbCloseLightA_clicked()
 
 void ControlPanel::on_pbOpenLightB_clicked()
 {
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     // 光源 B(索引 2)
     QByteArray qbtData;
     QByteArray qbtRespond;
@@ -577,6 +641,11 @@ void ControlPanel::on_pbOpenLightB_clicked()
 
 void ControlPanel::on_pbCloseLihgtB_clicked()
 {
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
     QByteArray qbtData;
     QByteArray qbtRespond;
     // 只关 B

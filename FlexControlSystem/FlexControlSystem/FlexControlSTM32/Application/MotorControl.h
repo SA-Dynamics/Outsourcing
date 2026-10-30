@@ -41,4 +41,8 @@ void MotionControlInit(void);
 void MotorControl(void);
 void MotorControlStop(void);
 
+
+void StartBinMotion(void);
+void StopBinMotion(void);
+
 #endif
