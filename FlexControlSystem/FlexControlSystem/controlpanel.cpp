@@ -26,6 +26,8 @@ ControlPanel::ControlPanel(QWidget *parent) :
     ui->pbG1->hide();
     ui->pbG2->hide();
     ui->pbFlip->hide();
+    ui->hsldSpeed->hide();
+    ui->lbSpeed->hide();
 
     // 按钮分组
     m_pMotionGroup = new QButtonGroup();

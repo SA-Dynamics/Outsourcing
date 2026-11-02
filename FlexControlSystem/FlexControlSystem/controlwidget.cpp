@@ -106,8 +106,14 @@ void ControlWidget::OnConnectiveState(const bool &bState)
 // 关闭并销毁通信对象与工作线程
 // 线程先 quit/wait 停止, 再直接 delete 通信对象(此时其所属线程已停, 无并发访问)
 // 不用 deleteLater: 若线程事件循环先退出, deleteLater 事件将永远不会被处理, 造成泄漏
+//
+// 统一在此禁用 ui->tabControl: 心跳丢失 / 主动断开 TCP/485 / 连接失败 / 析构 全部走这里,
+// 断连后控制面板不能再操作(按钮即使被 sigMotionTerminate 恢复为 enabled, 因父容器禁用也不可点;
+// 下次连接成功时 OnConnectiveState(true) 会重新 setEnabled(true))。
 void ControlWidget::CloseConnection(void)
 {
+    ui->tabControl->setEnabled(false);
+
     if (m_ConnectiveHandler)
     {
         // 断开全部信号连接, 避免清理过程中的信号投递

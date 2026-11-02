@@ -1205,10 +1205,10 @@ static bool MoveGatherMode(void)
 //			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
 //				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
 			{
-				for (uint8_t i = 0; i < 4; i++)
-				{
-					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-				}
+//				for (uint8_t i = 0; i < 4; i++)
+//				{
+//					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//				}
 				g_sMotionControl.u8FSMStep = INIT_MOTION;
 				u32GroupSelect++;
 				if (u32GroupSelect > 3)
@@ -1444,10 +1444,10 @@ static bool MoveHGatherMode(void)
 //			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
 //				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
 			{
-				for (uint8_t i = 0; i < 4; i++)
-				{
-					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-				}
+//				for (uint8_t i = 0; i < 4; i++)
+//				{
+//					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//				}
 				g_sMotionControl.u8FSMStep = INIT_MOTION;
 				u32GroupSelect++;
 			}
@@ -1569,10 +1569,10 @@ static bool MoveVGatherMode(void)
 			break;
 			
 		case CHECK_DIR_COUNT:
-			for (uint8_t i = 0; i < 4; i++)
-			{
-				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-			}
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//			}
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
 			u32GroupSelect++;
 			break;

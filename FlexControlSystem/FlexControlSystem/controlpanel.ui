@@ -261,7 +261,7 @@
               </spacer>
              </item>
              <item row="2" column="1">
-              <widget class="QLabel" name="label_23">
+              <widget class="QLabel" name="lbSpeed">
                <property name="text">
                 <string>速度调节</string>
                </property>
