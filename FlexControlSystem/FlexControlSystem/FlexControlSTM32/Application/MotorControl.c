@@ -4,6 +4,7 @@
 #include "SerialHandle.h"
 #include "BinControl.h"
 #include "tim.h"
+#include <math.h>
 
 
 #define TRAY_MAX_VIBRATION_FREQ			200
@@ -18,6 +19,7 @@
 #define ENABLE_RIGHT_BOTTUM(bEnable)	(bEnable ? HAL_GPIO_WritePin(EnableRightBottum_GPIO_Port, EnableRightBottum_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableRightBottum_GPIO_Port, EnableRightBottum_Pin, GPIO_PIN_RESET))
 //#define ENABLE_BIN(bEnable)				(bEnable ? HAL_GPIO_WritePin(EnableBin_GPIO_Port, EnableBin_Pin, GPIO_PIN_SET) : HAL_GPIO_WritePin(EnableBin_GPIO_Port, EnableBin_Pin, GPIO_PIN_RESET))
 
+//#define USE_CARDIOID_WAVE
 #define USE_SIN_WAVE
 //#define USE_FIX_INC
 
@@ -351,6 +353,171 @@ const int16_t g_s16DutyTable1Cycle[1600] =
 -141, -124, -106, -88, -71, -53, -35, -18, 0,
 };
 
+#elif defined(USE_CARDIOID_WAVE)
+const int16_t g_s16DutyTable1Cycle[1600] =
+{
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+1, 1, 1, 1, 2, 2, 2, 3, 3, 4,
+4, 5, 6, 6, 7, 8, 9, 10, 11, 12,
+14, 15, 17, 18, 20, 21, 23, 25, 27, 29,
+31, 34, 36, 39, 41, 44, 47, 50, 53, 56,
+60, 63, 67, 71, 75, 79, 83, 87, 92, 96,
+101, 106, 111, 116, 121, 127, 133, 138, 144, 150,
+157, 163, 170, 176, 183, 190, 198, 205, 213, 220,
+228, 236, 245, 253, 262, 270, 279, 288, 298, 307,
+317, 327, 337, 347, 357, 368, 378, 389, 400, 412,
+423, 435, 446, 458, 470, 483, 495, 508, 521, 534,
+547, 560, 574, 587, 601, 615, 629, 644, 658, 673,
+688, 703, 718, 734, 749, 765, 781, 797, 813, 830,
+846, 863, 880, 897, 914, 931, 948, 966, 984, 1002,
+1020, 1038, 1056, 1075, 1093, 1112, 1131, 1150, 1169, 1188,
+1207, 1227, 1246, 1266, 1286, 1306, 1326, 1346, 1367, 1387,
+1407, 1428, 1449, 1469, 1490, 1511, 1532, 1554, 1575, 1596,
+1617, 1639, 1660, 1682, 1704, 1726, 1747, 1769, 1791, 1813,
+1835, 1857, 1879, 1902, 1924, 1946, 1969, 1991, 2013, 2036,
+2058, 2081, 2103, 2126, 2148, 2171, 2193, 2216, 2238, 2261,
+2283, 2306, 2328, 2351, 2373, 2396, 2418, 2441, 2463, 2486,
+2508, 2530, 2553, 2575, 2597, 2620, 2642, 2664, 2686, 2708,
+2730, 2752, 2773, 2795, 2817, 2839, 2860, 2882, 2903, 2924,
+2945, 2967, 2988, 3009, 3030, 3050, 3071, 3092, 3112, 3132,
+3153, 3173, 3193, 3213, 3233, 3253, 3272, 3292, 3311, 3330,
+3349, 3368, 3387, 3406, 3424, 3443, 3461, 3479, 3497, 3515,
+3533, 3551, 3568, 3585, 3602, 3619, 3636, 3653, 3669, 3686,
+3702, 3718, 3734, 3750, 3765, 3781, 3796, 3811, 3826, 3841,
+3855, 3870, 3884, 3898, 3912, 3925, 3939, 3952, 3965, 3978,
+3991, 4004, 4016, 4029, 4041, 4053, 4064, 4076, 4087, 4099,
+4110, 4121, 4131, 4142, 4152, 4162, 4172, 4182, 4192, 4201,
+4211, 4220, 4229, 4237, 4246, 4254, 4263, 4271, 4279, 4286,
+4294, 4301, 4309, 4316, 4323, 4329, 4336, 4342, 4349, 4355,
+4361, 4366, 4372, 4378, 4383, 4388, 4393, 4398, 4403, 4407,
+4412, 4416, 4420, 4424, 4428, 4432, 4436, 4439, 4443, 4446,
+4449, 4452, 4455, 4458, 4460, 4463, 4465, 4468, 4470, 4472,
+4474, 4476, 4478, 4479, 4481, 4482, 4484, 4485, 4487, 4488,
+4489, 4490, 4491, 4492, 4493, 4493, 4494, 4495, 4495, 4496,
+4496, 4497, 4497, 4497, 4498, 4498, 4498, 4498, 4499, 4499,
+4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499,
+4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499, 4499,
+4498, 4498, 4498, 4498, 4497, 4497, 4497, 4496, 4496, 4495,
+4495, 4494, 4493, 4493, 4492, 4491, 4490, 4489, 4488, 4487,
+4485, 4484, 4482, 4481, 4479, 4478, 4476, 4474, 4472, 4470,
+4468, 4465, 4463, 4460, 4458, 4455, 4452, 4449, 4446, 4443,
+4439, 4436, 4432, 4428, 4424, 4420, 4416, 4412, 4407, 4403,
+4398, 4393, 4388, 4383, 4378, 4372, 4366, 4361, 4355, 4349,
+4342, 4336, 4329, 4323, 4316, 4309, 4301, 4294, 4286, 4279,
+4271, 4263, 4254, 4246, 4237, 4229, 4220, 4211, 4201, 4192,
+4182, 4172, 4162, 4152, 4142, 4131, 4121, 4110, 4099, 4087,
+4076, 4064, 4053, 4041, 4029, 4016, 4004, 3991, 3978, 3965,
+3952, 3939, 3925, 3912, 3898, 3884, 3870, 3855, 3841, 3826,
+3811, 3796, 3781, 3765, 3750, 3734, 3718, 3702, 3686, 3669,
+3653, 3636, 3619, 3602, 3585, 3568, 3551, 3533, 3515, 3497,
+3479, 3461, 3443, 3424, 3406, 3387, 3368, 3349, 3330, 3311,
+3292, 3272, 3253, 3233, 3213, 3193, 3173, 3153, 3132, 3112,
+3092, 3071, 3050, 3030, 3009, 2988, 2967, 2945, 2924, 2903,
+2882, 2860, 2839, 2817, 2795, 2773, 2752, 2730, 2708, 2686,
+2664, 2642, 2620, 2597, 2575, 2553, 2530, 2508, 2486, 2463,
+2441, 2418, 2396, 2373, 2351, 2328, 2306, 2283, 2261, 2238,
+2216, 2193, 2171, 2148, 2126, 2103, 2081, 2058, 2036, 2013,
+1991, 1969, 1946, 1924, 1902, 1879, 1857, 1835, 1813, 1791,
+1769, 1747, 1726, 1704, 1682, 1660, 1639, 1617, 1596, 1575,
+1554, 1532, 1511, 1490, 1469, 1449, 1428, 1407, 1387, 1367,
+1346, 1326, 1306, 1286, 1266, 1246, 1227, 1207, 1188, 1169,
+1150, 1131, 1112, 1093, 1075, 1056, 1038, 1020, 1002, 984,
+966, 948, 931, 914, 897, 880, 863, 846, 830, 813,
+797, 781, 765, 749, 734, 718, 703, 688, 673, 658,
+644, 629, 615, 601, 587, 574, 560, 547, 534, 521,
+508, 495, 483, 470, 458, 446, 435, 423, 412, 400,
+389, 378, 368, 357, 347, 337, 327, 317, 307, 298,
+288, 279, 270, 262, 253, 245, 236, 228, 220, 213,
+205, 198, 190, 183, 176, 170, 163, 157, 150, 144,
+138, 133, 127, 121, 116, 111, 106, 101, 96, 92,
+87, 83, 79, 75, 71, 67, 63, 60, 56, 53,
+50, 47, 44, 41, 39, 36, 34, 31, 29, 27,
+25, 23, 21, 20, 18, 17, 15, 14, 12, 11,
+10, 9, 8, 7, 6, 6, 5, 4, 4, 3,
+3, 2, 2, 2, 1, 1, 1, 1, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-1, -1, -1, -1, -2, -2, -2, -3, -3, -4,
+-4, -5, -6, -6, -7, -8, -9, -10, -11, -12,
+-14, -15, -17, -18, -20, -21, -23, -25, -27, -29,
+-31, -34, -36, -39, -41, -44, -47, -50, -53, -56,
+-60, -63, -67, -71, -75, -79, -83, -87, -92, -96,
+-101, -106, -111, -116, -121, -127, -133, -138, -144, -150,
+-157, -163, -170, -176, -183, -190, -198, -205, -213, -220,
+-228, -236, -245, -253, -262, -270, -279, -288, -298, -307,
+-317, -327, -337, -347, -357, -368, -378, -389, -400, -412,
+-423, -435, -446, -458, -470, -483, -495, -508, -521, -534,
+-547, -560, -574, -587, -601, -615, -629, -644, -658, -673,
+-688, -703, -718, -734, -749, -765, -781, -797, -813, -830,
+-846, -863, -880, -897, -914, -931, -948, -966, -984, -1002,
+-1020, -1038, -1056, -1075, -1093, -1112, -1131, -1150, -1169, -1188,
+-1207, -1227, -1246, -1266, -1286, -1306, -1326, -1346, -1367, -1387,
+-1407, -1428, -1449, -1469, -1490, -1511, -1532, -1554, -1575, -1596,
+-1617, -1639, -1660, -1682, -1704, -1726, -1747, -1769, -1791, -1813,
+-1835, -1857, -1879, -1902, -1924, -1946, -1969, -1991, -2013, -2036,
+-2058, -2081, -2103, -2126, -2148, -2171, -2193, -2216, -2238, -2261,
+-2283, -2306, -2328, -2351, -2373, -2396, -2418, -2441, -2463, -2486,
+-2508, -2530, -2553, -2575, -2597, -2620, -2642, -2664, -2686, -2708,
+-2730, -2752, -2773, -2795, -2817, -2839, -2860, -2882, -2903, -2924,
+-2945, -2967, -2988, -3009, -3030, -3050, -3071, -3092, -3112, -3132,
+-3153, -3173, -3193, -3213, -3233, -3253, -3272, -3292, -3311, -3330,
+-3349, -3368, -3387, -3406, -3424, -3443, -3461, -3479, -3497, -3515,
+-3533, -3551, -3568, -3585, -3602, -3619, -3636, -3653, -3669, -3686,
+-3702, -3718, -3734, -3750, -3765, -3781, -3796, -3811, -3826, -3841,
+-3855, -3870, -3884, -3898, -3912, -3925, -3939, -3952, -3965, -3978,
+-3991, -4004, -4016, -4029, -4041, -4053, -4064, -4076, -4087, -4099,
+-4110, -4121, -4131, -4142, -4152, -4162, -4172, -4182, -4192, -4201,
+-4211, -4220, -4229, -4237, -4246, -4254, -4263, -4271, -4279, -4286,
+-4294, -4301, -4309, -4316, -4323, -4329, -4336, -4342, -4349, -4355,
+-4361, -4366, -4372, -4378, -4383, -4388, -4393, -4398, -4403, -4407,
+-4412, -4416, -4420, -4424, -4428, -4432, -4436, -4439, -4443, -4446,
+-4449, -4452, -4455, -4458, -4460, -4463, -4465, -4468, -4470, -4472,
+-4474, -4476, -4478, -4479, -4481, -4482, -4484, -4485, -4487, -4488,
+-4489, -4490, -4491, -4492, -4493, -4493, -4494, -4495, -4495, -4496,
+-4496, -4497, -4497, -4497, -4498, -4498, -4498, -4498, -4499, -4499,
+-4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499,
+-4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499, -4499,
+-4498, -4498, -4498, -4498, -4497, -4497, -4497, -4496, -4496, -4495,
+-4495, -4494, -4493, -4493, -4492, -4491, -4490, -4489, -4488, -4487,
+-4485, -4484, -4482, -4481, -4479, -4478, -4476, -4474, -4472, -4470,
+-4468, -4465, -4463, -4460, -4458, -4455, -4452, -4449, -4446, -4443,
+-4439, -4436, -4432, -4428, -4424, -4420, -4416, -4412, -4407, -4403,
+-4398, -4393, -4388, -4383, -4378, -4372, -4366, -4361, -4355, -4349,
+-4342, -4336, -4329, -4323, -4316, -4309, -4301, -4294, -4286, -4279,
+-4271, -4263, -4254, -4246, -4237, -4229, -4220, -4211, -4201, -4192,
+-4182, -4172, -4162, -4152, -4142, -4131, -4121, -4110, -4099, -4087,
+-4076, -4064, -4053, -4041, -4029, -4016, -4004, -3991, -3978, -3965,
+-3952, -3939, -3925, -3912, -3898, -3884, -3870, -3855, -3841, -3826,
+-3811, -3796, -3781, -3765, -3750, -3734, -3718, -3702, -3686, -3669,
+-3653, -3636, -3619, -3602, -3585, -3568, -3551, -3533, -3515, -3497,
+-3479, -3461, -3443, -3424, -3406, -3387, -3368, -3349, -3330, -3311,
+-3292, -3272, -3253, -3233, -3213, -3193, -3173, -3153, -3132, -3112,
+-3092, -3071, -3050, -3030, -3009, -2988, -2967, -2945, -2924, -2903,
+-2882, -2860, -2839, -2817, -2795, -2773, -2752, -2730, -2708, -2686,
+-2664, -2642, -2620, -2597, -2575, -2553, -2530, -2508, -2486, -2463,
+-2441, -2418, -2396, -2373, -2351, -2328, -2306, -2283, -2261, -2238,
+-2216, -2193, -2171, -2148, -2126, -2103, -2081, -2058, -2036, -2013,
+-1991, -1969, -1946, -1924, -1902, -1879, -1857, -1835, -1813, -1791,
+-1769, -1747, -1726, -1704, -1682, -1660, -1639, -1617, -1596, -1575,
+-1554, -1532, -1511, -1490, -1469, -1449, -1428, -1407, -1387, -1367,
+-1346, -1326, -1306, -1286, -1266, -1246, -1227, -1207, -1188, -1169,
+-1150, -1131, -1112, -1093, -1075, -1056, -1038, -1020, -1002, -984,
+-966, -948, -931, -914, -897, -880, -863, -846, -830, -813,
+-797, -781, -765, -749, -734, -718, -703, -688, -673, -658,
+-644, -629, -615, -601, -587, -574, -560, -547, -534, -521,
+-508, -495, -483, -470, -458, -446, -435, -423, -412, -400,
+-389, -378, -368, -357, -347, -337, -327, -317, -307, -298,
+-288, -279, -270, -262, -253, -245, -236, -228, -220, -213,
+-205, -198, -190, -183, -176, -170, -163, -157, -150, -144,
+-138, -133, -127, -121, -116, -111, -106, -101, -96, -92,
+-87, -83, -79, -75, -71, -67, -63, -60, -56, -53,
+-50, -47, -44, -41, -39, -36, -34, -31, -29, -27,
+-25, -23, -21, -20, -18, -17, -15, -14, -12, -11,
+-10, -9, -8, -7, -6, -6, -5, -4, -4, -3,
+-3, -2, -2, -2, -1, -1, -1, -1, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 #endif
 
 
@@ -423,10 +590,13 @@ struct
 	uint32_t u32TimerCount;
 	bool (*pControlFunc)(void);
 	uint8_t u8FSMStep;
+	uint8_t u8CombinationFSMStep;
 	int16_t s16AngleOffset;
 	uint32_t u32DutyZoomTemp;
 }g_sMotionControl;
 
+static bool MoveHGatherMode(void);
+static bool MoveVGatherMode(void);
 
 volatile uint32_t u32Test = 0;
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) 
@@ -577,6 +747,7 @@ void ClearMotorInfo(void)
 void MotionEndHandler(void)
 {
 	g_sMotionControl.u8FSMStep = 0;
+//	g_sMotionControl.u8CombinationFSMStep = 0;
 	g_sMotionControl.pControlFunc = MoveNone;
 	
 	ENABLE_LEFT_TOP(1);
@@ -679,6 +850,7 @@ static bool MoveUpMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
 		CHECK_DIR_COUNT,
@@ -691,21 +863,31 @@ static bool MoveUpMode(void)
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
 			u32MoveOffset0 = 0;
-			u32MoveOffset1 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
-			u32MoveOffset2 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset1 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset2 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			u32MoveOffset3 = 0;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
 			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
-			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
-			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+//			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+//			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
 			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
+		
+			g_sMotorControl.sMotor[1].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[2].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;		
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
 			
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
 					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
@@ -716,17 +898,42 @@ static bool MoveUpMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+		
+			g_sMotorControl.sMotor[1].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[2].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
+		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				if (g_sMotorControl.sMotor[i].pActivePolarity)
+//				{
+//					g_sMotorControl.sMotor[i].bStartFlag = true;
+//					g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//					HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+//				}
+//			}
+			break;
+			
+			
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[1].u32Index >> 15) >= 400 && (g_sMotorControl.sMotor[2].u32Index >> 15) >= 400)
 			{
-				if (g_sMotorControl.sMotor[i].pActivePolarity)
-				{
-					g_sMotorControl.sMotor[i].bStartFlag = true;
-					g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-					HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
-				}
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
 			}
 			break;
+			
 			
 		case WAIT_MOTION1GROUP_STOP:
 			if (!g_sMotorControl.sMotor[1].bStartFlag && !g_sMotorControl.sMotor[2].bStartFlag)
@@ -742,7 +949,7 @@ static bool MoveUpMode(void)
 			{	
 				g_sMotorControl.sMotor[0].bStartFlag = true;
 				g_sMotorControl.sMotor[3].bStartFlag = true;				
-				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;//WAIT_MOTION1GROUP_STOP;
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
 			}
 			break;
 			
@@ -798,6 +1005,7 @@ static bool MoveDownMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
 		CHECK_DIR_COUNT,
@@ -808,22 +1016,32 @@ static bool MoveDownMode(void)
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			u32MoveOffset1 = 0;
 			u32MoveOffset2 = 0;
-			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			break;
 		
 		case INIT_MOTION:	
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
-			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+//			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
 			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
 			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
-			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
+//			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
+		
+			g_sMotorControl.sMotor[0].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[3].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
 			
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
 					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
@@ -834,15 +1052,37 @@ static bool MoveDownMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+		
+			g_sMotorControl.sMotor[0].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[3].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				if (g_sMotorControl.sMotor[i].pActivePolarity)
+//				{
+//					g_sMotorControl.sMotor[i].bStartFlag = true;
+//					g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//					HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+//				}
+//			}
+			break;
+
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[0].u32Index >> 15) >= 400 && (g_sMotorControl.sMotor[3].u32Index >> 15) >= 400)
 			{
-				if (g_sMotorControl.sMotor[i].pActivePolarity)
-				{
-					g_sMotorControl.sMotor[i].bStartFlag = true;
-					g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-					HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
-				}
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
 			}
 			break;
 			
@@ -902,6 +1142,7 @@ static bool MoveLeftMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
 		CHECK_DIR_COUNT,
@@ -914,20 +1155,30 @@ static bool MoveLeftMode(void)
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
 			u32MoveOffset0 = 0;
 			u32MoveOffset1 = 0;
-			u32MoveOffset2 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
-			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset2 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset3 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
 			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
-			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
-			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
-			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
+			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;		
+//			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+//			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 		
+			g_sMotorControl.sMotor[2].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[3].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+				
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
 			
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
 					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
@@ -938,12 +1189,34 @@ static bool MoveLeftMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+			g_sMotorControl.sMotor[2].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[3].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
+			
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].bStartFlag = true;
+//				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//			}
+			break;
+			
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[2].u32Index >> 15) >= 400 && (g_sMotorControl.sMotor[3].u32Index >> 15) >= 400)
 			{
-				g_sMotorControl.sMotor[i].bStartFlag = true;
-				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
 			}
 			break;
 			
@@ -1004,6 +1277,7 @@ static bool MoveRightMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
 		CHECK_DIR_COUNT,
@@ -1016,8 +1290,8 @@ static bool MoveRightMode(void)
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
-			u32MoveOffset1 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset1 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
 			u32MoveOffset2 = 0;
 			u32MoveOffset3 = 0;
 			break;
@@ -1025,14 +1299,25 @@ static bool MoveRightMode(void)
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
 			// 超前相位			
-			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
-			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+		
+			g_sMotorControl.sMotor[0].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[1].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+		
+//			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+//			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
 			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
 			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
-			
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
+				
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
 					g_sMotorControl.sMotor[i].u32DutyZoom / g_sMotionControl.u32DutyZoomTemp) >> 15;
 				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
@@ -1042,13 +1327,36 @@ static bool MoveRightMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+			g_sMotorControl.sMotor[0].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[1].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
+		
+		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].bStartFlag = true;
+//				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//			}
+			break;
+			
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[0].u32Index >> 15) >= u32RightOffsetTest && (g_sMotorControl.sMotor[1].u32Index >> 15) >= u32RightOffsetTest)
 			{
-				g_sMotorControl.sMotor[i].bStartFlag = true;
-				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-			}
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
+			}			
 			break;
 			
 		case WAIT_MOTION1GROUP_STOP:
@@ -1227,6 +1535,64 @@ static bool MoveGatherMode(void)
 		default:
 			break;			
 	}
+
+
+//	bool bRet = false;
+//	
+//	enum
+//	{
+//		START_TIME = 0,
+//		INIT_MOTION,
+//		PREPARE_MOTION,
+//		WAIT_MOTION1GROUP_STOP,
+//		WAIT_MOTION2GROUP_STOP,
+//		CHECK_DIR_COUNT,
+//	};
+//	
+//	static uint8_t u8Group10 = 0;
+//	static uint8_t u8Group11 = 1;
+//	static uint8_t u8Group20 = 2;
+//	static uint8_t u8Group21 = 3;
+//	
+//	static uint32_t u32GroupSelect = 0;
+//	static uint32_t u32TimerSave = 0;
+//	static uint32_t u32TimeCount = 0;
+//	
+//	switch (g_sMotionControl.u8CombinationFSMStep)
+//	{
+//		case START_TIME:
+//			ResetTimerCount(&u32TimeCount);
+//			u32TimerSave = g_sMotionControl.u32TimeUseExpect;
+//			g_sMotionControl.u32TimeUseExpect = 500;
+//			g_sMotionControl.u8CombinationFSMStep = INIT_MOTION;
+//			u32GroupSelect = 0;
+//			break;
+//		
+//		case INIT_MOTION:
+//			g_sMotionControl.u8CombinationFSMStep = PREPARE_MOTION;
+//			break;
+//		
+//		case PREPARE_MOTION:
+//			g_sMotionControl.u8CombinationFSMStep = WAIT_MOTION1GROUP_STOP;
+//			break;
+//			
+//		case WAIT_MOTION1GROUP_STOP:
+//			if (MoveHGatherMode())
+//			{
+//				g_sMotionControl.u8CombinationFSMStep = WAIT_MOTION2GROUP_STOP;
+//			}
+//			break;
+//			
+//		case WAIT_MOTION2GROUP_STOP:
+//			if (MoveVGatherMode())
+//			{
+//				g_sMotionControl.u8CombinationFSMStep = WAIT_MOTION1GROUP_STOP;
+//			}
+//			break;
+//			
+//		default:
+//			break;			
+//	}
 	
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
@@ -1355,6 +1721,154 @@ uint32_t u32HGatherOffsetTest = 400;
 // 水平居中
 static bool MoveHGatherMode(void)
 {
+//	bool bRet = false;
+//	
+//	enum
+//	{
+//		START_TIME = 0,
+//		INIT_MOTION,
+//		PREPARE_MOTION,
+//		WAIT_MOTION1GROUP_STOP,
+//		WAIT_MOTION2GROUP_STOP,
+//		WAIT_MOTION3GROUP_STOP,
+//		CHECK_DIR_COUNT,
+//	};
+//	
+//	static uint8_t u8Group10 = 0;
+//	static uint8_t u8Group11 = 1;
+//	static uint8_t u8Group20 = 2;
+//	static uint8_t u8Group21 = 3;
+//	
+//	static uint32_t u32DutyZoom0Save = 0;
+//	static uint32_t u32DutyZoom1Save = 0;
+//	static uint32_t u32DutyZoom2Save = 0;
+//	static uint32_t u32DutyZoom3Save = 0;
+//	
+//	static uint32_t u32GroupSelect = 0;
+//	static uint32_t u32WaveCount = 0;
+//	
+//	switch (g_sMotionControl.u8FSMStep)
+//	{
+//		case START_TIME:
+//			ResetTimerCount(&g_sMotionControl.u32TimerCount);
+//			g_sMotionControl.u8FSMStep = INIT_MOTION;
+//			u32GroupSelect = 0;
+//			u32WaveCount = 0;
+//			u32DutyZoom0Save = g_sMotorControl.sMotor[0].u32DutyZoom;
+//			u32DutyZoom1Save = g_sMotorControl.sMotor[1].u32DutyZoom;
+//			u32DutyZoom2Save = g_sMotorControl.sMotor[2].u32DutyZoom;
+//			u32DutyZoom3Save = g_sMotorControl.sMotor[3].u32DutyZoom;
+//			break;
+//		
+//		case INIT_MOTION:
+//			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
+//		
+//			// 超前相位
+//			if (u32GroupSelect % 2 == 0)
+//			{
+//				u8Group10 = 0;
+//				u8Group11 = 3;
+//				u8Group20 = 1;
+//				u8Group21 = 2;
+////				g_sMotorControl.sMotor[0].u32DutyZoom = u32DutyZoom0Save;
+////				g_sMotorControl.sMotor[1].u32DutyZoom /= 4;
+////				g_sMotorControl.sMotor[2].u32DutyZoom /= 4;
+////				g_sMotorControl.sMotor[3].u32DutyZoom = u32DutyZoom3Save;
+//			}
+//			else
+//			{
+//				u8Group10 = 1;
+//				u8Group11 = 2;
+//				u8Group20 = 0;
+//				u8Group21 = 3;
+//				
+////				g_sMotorControl.sMotor[0].u32DutyZoom /= 4;
+////				g_sMotorControl.sMotor[1].u32DutyZoom = u32DutyZoom1Save;
+////				g_sMotorControl.sMotor[2].u32DutyZoom = u32DutyZoom2Save;
+////				g_sMotorControl.sMotor[3].u32DutyZoom /= 4;
+//			}
+//			
+//			g_sMotorControl.sMotor[u8Group10].u32Index = u32HGatherOffsetTest * 32768;
+//			g_sMotorControl.sMotor[u8Group11].u32Index = u32HGatherOffsetTest * 32768;
+//			g_sMotorControl.sMotor[u8Group20].u32Index = 0 * 32768;
+//			g_sMotorControl.sMotor[u8Group21].u32Index = 0 * 32768;
+//		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+//			
+//				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
+//					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+//				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
+//											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
+//											g_sMotorControl.sMotor[i].u16Duty); 
+//			}
+//			break;
+//		
+//		case PREPARE_MOTION:
+//			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].bStartFlag = true;
+//				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+//			}
+//			break;
+//			
+//		case WAIT_MOTION1GROUP_STOP:
+//			if (!g_sMotorControl.sMotor[u8Group10].bStartFlag && !g_sMotorControl.sMotor[u8Group11].bStartFlag)
+//			{				
+//				g_sMotorControl.sMotor[u8Group10].bStartFlag = true;
+//				g_sMotorControl.sMotor[u8Group11].bStartFlag = true;
+//				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
+//			}
+//			break;
+//			
+//		case WAIT_MOTION2GROUP_STOP:
+//			if (!g_sMotorControl.sMotor[u8Group20].bStartFlag && !g_sMotorControl.sMotor[u8Group21].bStartFlag)
+//			{				
+//				g_sMotorControl.sMotor[u8Group20].bStartFlag = true;
+//				g_sMotorControl.sMotor[u8Group21].bStartFlag = true;
+//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;//WAIT_MOTION3GROUP_STOP;
+//				u32WaveCount++;
+//				if (u32WaveCount >= u32WaveCountTemp)
+//				{
+//					u32WaveCount = 0;
+//					g_sMotionControl.u8FSMStep = WAIT_MOTION3GROUP_STOP;
+//				}
+//			}
+//			break;
+//			
+//		case WAIT_MOTION3GROUP_STOP:
+//			if (((g_sMotorControl.sMotor[u8Group20].u32Index >> 15) >= 400) && ((g_sMotorControl.sMotor[u8Group21].u32Index >> 15) >= 400))
+//			{				
+//				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+//			}
+//			break;
+//			
+//		case CHECK_DIR_COUNT:
+////			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
+////				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
+//			{
+////				for (uint8_t i = 0; i < 4; i++)
+////				{
+////					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+////				}
+//				g_sMotionControl.u8FSMStep = INIT_MOTION;
+//				u32GroupSelect++;
+//			}
+////			else
+////			{
+////				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+////			}
+//			break;
+//			
+//		default:
+//			break;			
+//	}
+
+
+
 	bool bRet = false;
 	
 	enum
@@ -1362,74 +1876,44 @@ static bool MoveHGatherMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
-		WAIT_MOTION3GROUP_STOP,
 		CHECK_DIR_COUNT,
 	};
 	
-	static uint8_t u8Group10 = 0;
-	static uint8_t u8Group11 = 1;
-	static uint8_t u8Group20 = 2;
-	static uint8_t u8Group21 = 3;
-	
-	static uint32_t u32DutyZoom0Save = 0;
-	static uint32_t u32DutyZoom1Save = 0;
-	static uint32_t u32DutyZoom2Save = 0;
-	static uint32_t u32DutyZoom3Save = 0;
-	
-	static uint32_t u32GroupSelect = 0;
-	static uint32_t u32WaveCount = 0;
 	
 	switch (g_sMotionControl.u8FSMStep)
 	{
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32GroupSelect = 0;
-			u32WaveCount = 0;
-			u32DutyZoom0Save = g_sMotorControl.sMotor[0].u32DutyZoom;
-			u32DutyZoom1Save = g_sMotorControl.sMotor[1].u32DutyZoom;
-			u32DutyZoom2Save = g_sMotorControl.sMotor[2].u32DutyZoom;
-			u32DutyZoom3Save = g_sMotorControl.sMotor[3].u32DutyZoom;
+			u32MoveOffset0 = 0;
+//			u32MoveOffset1 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset2 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+			u32MoveOffset3 = 0;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
+			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+//			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+//			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 		
-			// 超前相位
-			if (u32GroupSelect % 2 == 0)
-			{
-				u8Group10 = 0;
-				u8Group11 = 3;
-				u8Group20 = 1;
-				u8Group21 = 2;
-//				g_sMotorControl.sMotor[0].u32DutyZoom = u32DutyZoom0Save;
-//				g_sMotorControl.sMotor[1].u32DutyZoom /= 2;
-//				g_sMotorControl.sMotor[2].u32DutyZoom /= 2;
-//				g_sMotorControl.sMotor[3].u32DutyZoom = u32DutyZoom3Save;
-			}
-			else
-			{
-				u8Group10 = 1;
-				u8Group11 = 2;
-				u8Group20 = 0;
-				u8Group21 = 3;
-				
-				g_sMotorControl.sMotor[0].u32DutyZoom /= 2;
-				g_sMotorControl.sMotor[1].u32DutyZoom = u32DutyZoom1Save;
-				g_sMotorControl.sMotor[2].u32DutyZoom = u32DutyZoom2Save;
-				g_sMotorControl.sMotor[3].u32DutyZoom /= 2;
-			}
-			
-//			g_sMotorControl.sMotor[u8Group10].u32Index = u32HGatherOffsetTest * 32768;
-//			g_sMotorControl.sMotor[u8Group11].u32Index = u32HGatherOffsetTest * 32768;
-//			g_sMotorControl.sMotor[u8Group20].u32Index = 0 * 32768;
-//			g_sMotorControl.sMotor[u8Group21].u32Index = 0 * 32768;
+			g_sMotorControl.sMotor[1].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[2].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;		
 		
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
 			
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
 					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
@@ -1440,43 +1924,58 @@ static bool MoveHGatherMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+		
+			g_sMotorControl.sMotor[1].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[2].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
+		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				if (g_sMotorControl.sMotor[i].pActivePolarity)
+//				{
+//					g_sMotorControl.sMotor[i].bStartFlag = true;
+//					g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//					HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+//				}
+//			}
+			break;
+			
+			
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[1].u32Index >> 15) >= 400 && (g_sMotorControl.sMotor[2].u32Index >> 15) >= 400)
 			{
-				g_sMotorControl.sMotor[i].bStartFlag = true;
-				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
 			}
 			break;
 			
+			
 		case WAIT_MOTION1GROUP_STOP:
-			if (!g_sMotorControl.sMotor[u8Group10].bStartFlag && !g_sMotorControl.sMotor[u8Group11].bStartFlag)
-			{				
-				g_sMotorControl.sMotor[u8Group10].bStartFlag = true;
-				g_sMotorControl.sMotor[u8Group11].bStartFlag = true;
+			if (!g_sMotorControl.sMotor[1].bStartFlag && !g_sMotorControl.sMotor[2].bStartFlag)
+			{		
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				g_sMotorControl.sMotor[2].bStartFlag = true;		
 				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
 			}
 			break;
 			
 		case WAIT_MOTION2GROUP_STOP:
-			if (!g_sMotorControl.sMotor[u8Group20].bStartFlag && !g_sMotorControl.sMotor[u8Group21].bStartFlag)
-			{				
-				g_sMotorControl.sMotor[u8Group20].bStartFlag = true;
-				g_sMotorControl.sMotor[u8Group21].bStartFlag = true;
-				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;//WAIT_MOTION3GROUP_STOP;
-				u32WaveCount++;
-				if (u32WaveCount >= u32WaveCountTemp)
-				{
-					u32WaveCount = 0;
-					g_sMotionControl.u8FSMStep = WAIT_MOTION3GROUP_STOP;
-				}
-			}
-			break;
-			
-		case WAIT_MOTION3GROUP_STOP:
-			if (((g_sMotorControl.sMotor[u8Group20].u32Index >> 15) >= 400) && ((g_sMotorControl.sMotor[u8Group21].u32Index >> 15) >= 400))
-			{				
-				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+			{	
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				g_sMotorControl.sMotor[3].bStartFlag = true;				
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
 			}
 			break;
 			
@@ -1484,12 +1983,11 @@ static bool MoveHGatherMode(void)
 //			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
 //				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
 			{
-//				for (uint8_t i = 0; i < 4; i++)
-//				{
-//					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-//				}
+				for (uint8_t i = 0; i < 4; i++)
+				{
+					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+				}
 				g_sMotionControl.u8FSMStep = INIT_MOTION;
-				u32GroupSelect++;
 			}
 //			else
 //			{
@@ -1500,6 +1998,7 @@ static bool MoveHGatherMode(void)
 		default:
 			break;			
 	}
+
 	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
@@ -1516,11 +2015,137 @@ static bool MoveHGatherMode(void)
 }
 
 uint32_t u32SpanOffset = 0;
-uint32_t u32VGatherOffsetTest = 400;
+uint32_t u32VGatherOffsetTest = 600;
 
 // 垂直居中
 static bool MoveVGatherMode(void)
 {
+//	bool bRet = false;
+//	
+//	enum
+//	{
+//		START_TIME = 0,
+//		INIT_MOTION,
+//		PREPARE_MOTION,
+//		WAIT_MOTION1GROUP_STOP,
+//		WAIT_MOTION2GROUP_STOP,
+//		WAIT_MOTION3GROUP_STOP,
+//		CHECK_DIR_COUNT,
+//	};
+//	
+//	static uint8_t u8Group10 = 0;
+//	static uint8_t u8Group11 = 1;
+//	static uint8_t u8Group20 = 2;
+//	static uint8_t u8Group21 = 3;
+//	
+//	static uint32_t u32GroupSelect = 0;
+//	static uint32_t u32WaveCount = 0;
+//	
+//	switch (g_sMotionControl.u8FSMStep)
+//	{
+//		case START_TIME:
+//			ResetTimerCount(&g_sMotionControl.u32TimerCount);
+//			g_sMotionControl.u8FSMStep = INIT_MOTION;
+//			u32GroupSelect = 0;
+//			u32WaveCount = 0;
+//			break;
+//		
+//		case INIT_MOTION:
+//			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
+//		
+//			// 超前相位
+//			if (u32GroupSelect % 2 == 0)
+//			{
+//				u8Group10 = 2;
+//				u8Group11 = 3;
+//				u8Group20 = 0;
+//				u8Group21 = 1;
+
+//			}
+//			else
+//			{
+//				u8Group10 = 0;
+//				u8Group11 = 1;
+//				u8Group20 = 2;
+//				u8Group21 = 3;
+//			}
+//			
+//			g_sMotorControl.sMotor[u8Group10].u32Index = u32VGatherOffsetTest * 32768;
+//			g_sMotorControl.sMotor[u8Group11].u32Index = u32VGatherOffsetTest * 32768;
+//			g_sMotorControl.sMotor[u8Group20].u32Index = 0;
+//			g_sMotorControl.sMotor[u8Group21].u32Index = 0;
+//		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+//			
+//				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
+//					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+//				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
+//											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
+//											g_sMotorControl.sMotor[i].u16Duty); 
+//			}
+//			break;
+//		
+//		case PREPARE_MOTION:
+//			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].bStartFlag = true;
+//				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
+//			}
+//			break;
+//			
+//		case WAIT_MOTION1GROUP_STOP:
+//			if (!g_sMotorControl.sMotor[u8Group10].bStartFlag && !g_sMotorControl.sMotor[u8Group11].bStartFlag)
+//			{				
+//				g_sMotorControl.sMotor[u8Group10].bStartFlag = true;
+//				g_sMotorControl.sMotor[u8Group11].bStartFlag = true;
+//				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
+//			}
+//			break;
+//			
+//		case WAIT_MOTION2GROUP_STOP:			
+//			if (!g_sMotorControl.sMotor[u8Group20].bStartFlag && !g_sMotorControl.sMotor[u8Group21].bStartFlag)
+//			{				
+//				g_sMotorControl.sMotor[u8Group20].bStartFlag = true;
+//				g_sMotorControl.sMotor[u8Group21].bStartFlag = true;
+//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;//WAIT_MOTION3GROUP_STOP;
+//				u32WaveCount++;
+//				if (u32WaveCount >= u32WaveCountTemp)
+//				{
+//					u32WaveCount = 0;
+//					g_sMotionControl.u8FSMStep = WAIT_MOTION3GROUP_STOP;
+//				}
+//			}
+//			break;
+//			
+//		case WAIT_MOTION3GROUP_STOP:
+//			if (((g_sMotorControl.sMotor[u8Group20].u32Index >> 15) >= 400) && ((g_sMotorControl.sMotor[u8Group21].u32Index >> 15) >= 400))
+//			{				
+//				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+//			}
+//			break;
+//			
+//		case CHECK_DIR_COUNT:
+////			for (uint8_t i = 0; i < 4; i++)
+////			{
+////				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+////				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
+////											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
+////											0); 
+////			}
+////			HAL_Delay(u32DelayTest);
+//			g_sMotionControl.u8FSMStep = INIT_MOTION;
+//			u32GroupSelect++;
+//			break;
+//			
+//		default:
+//			break;			
+//	}
+
+
 	bool bRet = false;
 	
 	enum
@@ -1528,60 +2153,49 @@ static bool MoveVGatherMode(void)
 		START_TIME = 0,
 		INIT_MOTION,
 		PREPARE_MOTION,
+		WAIT_PHASE_DETECT,
 		WAIT_MOTION1GROUP_STOP,
 		WAIT_MOTION2GROUP_STOP,
-		WAIT_MOTION3GROUP_STOP,
 		CHECK_DIR_COUNT,
 	};
 	
-	static uint8_t u8Group10 = 0;
-	static uint8_t u8Group11 = 1;
-	static uint8_t u8Group20 = 2;
-	static uint8_t u8Group21 = 3;
-	
 	static uint32_t u32GroupSelect = 0;
-	static uint32_t u32WaveCount = 0;
 	
 	switch (g_sMotionControl.u8FSMStep)
 	{
 		case START_TIME:
 			ResetTimerCount(&g_sMotionControl.u32TimerCount);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32GroupSelect = 0;
-			u32WaveCount = 0;
+//			u32MoveOffset0 = 400 - (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+//			u32MoveOffset1 = 400 + (g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f + s32Phase;
+			u32MoveOffset2 = 0;
+			u32MoveOffset3 = 0;
 			break;
 		
 		case INIT_MOTION:
 			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
+			// 超前相位			
 		
-			// 超前相位
-			if (u32GroupSelect % 2 == 0)
-			{
-				u8Group10 = 2;
-				u8Group11 = 3;
-				u8Group20 = 0;
-				u8Group21 = 1;
-
-			}
-			else
-			{
-				u8Group10 = 0;
-				u8Group11 = 1;
-				u8Group20 = 2;
-				u8Group21 = 3;
-			}
-			
-			g_sMotorControl.sMotor[u8Group10].u32Index = u32VGatherOffsetTest * 32768;
-			g_sMotorControl.sMotor[u8Group11].u32Index = u32VGatherOffsetTest * 32768;
-			g_sMotorControl.sMotor[u8Group20].u32Index = 0;
-			g_sMotorControl.sMotor[u8Group21].u32Index = 0;
+			g_sMotorControl.sMotor[0].u32Index = ((1600 - (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
+			g_sMotorControl.sMotor[1].u32Index = ((1600 + (int16_t)((g_sMotionControl.s16AngleOffset / 90.0f) * 400.0f)) % 1600) * 32768;
 		
+//			g_sMotorControl.sMotor[0].u32Index = u32MoveOffset0 * 32768;
+//			g_sMotorControl.sMotor[1].u32Index = u32MoveOffset1 * 32768;
+			g_sMotorControl.sMotor[2].u32Index = u32MoveOffset2 * 32768;
+			g_sMotorControl.sMotor[3].u32Index = u32MoveOffset3 * 32768;
 			for (uint8_t i = 0; i < 4; i++)
 			{
-				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
-			
+				if ((g_sMotorControl.sMotor[i].u32Index >> 15) >= 800)
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityN;
+				}
+				else
+				{
+					g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+				}
+				
 				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
-					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+					g_sMotorControl.sMotor[i].u32DutyZoom / g_sMotionControl.u32DutyZoomTemp) >> 15;
 				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
 											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
 											g_sMotorControl.sMotor[i].u16Duty); 
@@ -1589,57 +2203,63 @@ static bool MoveVGatherMode(void)
 			break;
 		
 		case PREPARE_MOTION:
-			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
-			for (uint8_t i = 0; i < 4; i++)
+			g_sMotionControl.u8FSMStep = WAIT_PHASE_DETECT;
+			g_sMotorControl.sMotor[0].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[0].pActivePolarity->htim, g_sMotorControl.sMotor[0].pActivePolarity->u32CmpChannel);
+		
+			g_sMotorControl.sMotor[1].bStartFlag = true;
+			HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[1].pActivePolarity->htim, g_sMotorControl.sMotor[1].pActivePolarity->u32CmpChannel);
+		
+		
+//			for (uint8_t i = 0; i < 4; i++)
+//			{
+//				g_sMotorControl.sMotor[i].bStartFlag = true;
+//				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+//				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+//			}
+			break;
+			
+		case WAIT_PHASE_DETECT:
+			if ((g_sMotorControl.sMotor[0].u32Index >> 15) >= u32VGatherOffsetTest && (g_sMotorControl.sMotor[1].u32Index >> 15) >= u32VGatherOffsetTest)
 			{
-				g_sMotorControl.sMotor[i].bStartFlag = true;
-				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
-				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);					
-			}
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+				
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				g_sMotorControl.sMotor[1].bStartFlag = true;
+				
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[2].pActivePolarity->htim, g_sMotorControl.sMotor[2].pActivePolarity->u32CmpChannel);
+		
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[3].pActivePolarity->htim, g_sMotorControl.sMotor[3].pActivePolarity->u32CmpChannel);
+			}			
 			break;
 			
 		case WAIT_MOTION1GROUP_STOP:
-			if (!g_sMotorControl.sMotor[u8Group10].bStartFlag && !g_sMotorControl.sMotor[u8Group11].bStartFlag)
+			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[1].bStartFlag)
 			{				
-				g_sMotorControl.sMotor[u8Group10].bStartFlag = true;
-				g_sMotorControl.sMotor[u8Group11].bStartFlag = true;
+				g_sMotorControl.sMotor[0].bStartFlag = true;
+				g_sMotorControl.sMotor[1].bStartFlag = true;
 				g_sMotionControl.u8FSMStep = WAIT_MOTION2GROUP_STOP;
 			}
 			break;
 			
-		case WAIT_MOTION2GROUP_STOP:			
-			if (!g_sMotorControl.sMotor[u8Group20].bStartFlag && !g_sMotorControl.sMotor[u8Group21].bStartFlag)
-			{				
-				g_sMotorControl.sMotor[u8Group20].bStartFlag = true;
-				g_sMotorControl.sMotor[u8Group21].bStartFlag = true;
-				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;//WAIT_MOTION3GROUP_STOP;
-				u32WaveCount++;
-				if (u32WaveCount >= u32WaveCountTemp)
-				{
-					u32WaveCount = 0;
-					g_sMotionControl.u8FSMStep = WAIT_MOTION3GROUP_STOP;
-				}
-			}
-			break;
-			
-		case WAIT_MOTION3GROUP_STOP:
-			if (((g_sMotorControl.sMotor[u8Group20].u32Index >> 15) >= 400) && ((g_sMotorControl.sMotor[u8Group21].u32Index >> 15) >= 400))
-			{				
-				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+		case WAIT_MOTION2GROUP_STOP:
+			if (!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+			{
+				g_sMotorControl.sMotor[2].bStartFlag = true;
+				g_sMotorControl.sMotor[3].bStartFlag = true;
+				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
 			}
 			break;
 			
 		case CHECK_DIR_COUNT:
-//			for (uint8_t i = 0; i < 4; i++)
-//			{
-//				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
-//				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
-//											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
-//											0); 
-//			}
-//			HAL_Delay(u32DelayTest);
+			for (uint8_t i = 0; i < 4; i++)
+			{
+				HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+			}			
+			HAL_Delay(u32DelayTest);
 			g_sMotionControl.u8FSMStep = INIT_MOTION;
-			u32GroupSelect++;
 			break;
 			
 		default:
@@ -1824,22 +2444,22 @@ static void SetMotorDutyCoeff(const MotionIndex eIndex)
 	switch (eIndex)
 	{
 		case MOTION_UP:
-			fM0Coeff = 0.5f;
+			fM0Coeff = 0.2f;
 			fM1Coeff = 1.0f;
 			fM2Coeff = 1.0f;
-			fM3Coeff = 0.5f;
+			fM3Coeff = 0.2f;
 			break;
 
 		case MOTION_DOWN:
 			fM0Coeff = 1.0f;
-			fM1Coeff = 0.5f;
-			fM2Coeff = 0.5f;
+			fM1Coeff = 0.2f;
+			fM2Coeff = 0.2f;
 			fM3Coeff = 1.0f;
 			break;
 
 		case MOTION_LEFT:
-			fM0Coeff = 0.5f;
-			fM1Coeff = 0.5f;
+			fM0Coeff = 0.2f;
+			fM1Coeff = 0.2f;
 			fM2Coeff = 1.0f;
 			fM3Coeff = 1.0f;
 			break;
@@ -1847,24 +2467,27 @@ static void SetMotorDutyCoeff(const MotionIndex eIndex)
 		case MOTION_RIGHT:
 			fM0Coeff = 1.0f;
 			fM1Coeff = 1.0f;
-			fM2Coeff = 0.5f;
-			fM3Coeff = 0.5f;
+			fM2Coeff = 0.2f;
+			fM3Coeff = 0.2f;
 			break;
 		
 //		case MOTION_GATHER:
 //			g_sMotionControl.pControlFunc = MoveGatherMode;
 //			break;
 //		
-//		case MOTION_H_GATHER:
-//			fM0Coeff = 0.5f;
-//			fM1Coeff = 1.0f;
-//			fM2Coeff = 1.0f;
-//			fM3Coeff = 0.5f;
-//			break;
-//		
-//		case MOTION_V_GATHER:
-//			g_sMotionControl.pControlFunc = MoveVGatherMode;
-//			break;
+		case MOTION_H_GATHER:
+			fM0Coeff = 0.2f;
+			fM1Coeff = 1.0f;
+			fM2Coeff = 1.0f;
+			fM3Coeff = 0.2f;
+			break;
+		
+		case MOTION_V_GATHER:
+			fM0Coeff = fM0CoeffTemp;
+			fM1Coeff = fM1CoeffTemp;
+			fM2Coeff = fM2CoeffTemp;
+			fM3Coeff = fM3CoeffTemp;
+			break;
 
 //		case MOTION_DISPERSE:
 //			g_sMotionControl.pControlFunc = MoveDisperseMode;
@@ -1952,6 +2575,7 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 	}
 	
 	g_sMotionControl.u8FSMStep = 0;
+	g_sMotionControl.u8CombinationFSMStep = 0;
 	GetMotionFunc(pParams->eMotionIndex);
 	g_sMotionControl.u8Index = pParams->eMotionIndex;
 }
