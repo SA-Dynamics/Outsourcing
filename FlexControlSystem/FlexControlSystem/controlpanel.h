@@ -4,10 +4,12 @@
 #include <QWidget>
 #include <QButtonGroup>
 #include <QPushButton>
+#include <QTimer>
 
 #include "generalprotocol.h"
 //#include "ConnectiveHandle.h"
 
+class GroupMotion;
 
 namespace Ui {
 class ControlPanel;
@@ -50,6 +52,34 @@ private:
     // 只读面板(模式数据面板): 其信号未连接通信引擎, 只能编辑/保存参数, 不允许下发指令
     bool m_bReadOnly = false;
 
+    // ---- pbGather 交替序列 ----
+    // 点击"发送"且当前选中 Gather 时, 不下发 Gather 自身参数,
+    // 而是交替下发 pbHCentered / pbVCentered 的参数, 逐段累计运动时长到
+    // Gather 按钮自身 timeuse 为止(至少 1 段)。
+    // 段时长与间隔取模式数据面板的三个控件(单位秒, 构造函数里设默认值):
+    //   ui->dspHMotionTime 水平居中段时长 / ui->dspVMotionTime 垂直居中段时长
+    //   / ui->dspIntervalTime 段间静止间隔(0 = 无缝衔接)。
+    // 序列逐段入队(引擎串行下发, 每段等下位机完成回帧后才发下一段, 节拍无累计漂移);
+    // 间隔段实现为一条 0V 的运动指令: 下位机占空比为 0、电机断电,
+    // 按间隔时长计时后照常回完成帧, 引擎的节拍与应答匹配逻辑完全不变;
+    // 每个命令段(运动或间隔)完成都会触发一次 sigMotionTerminate,
+    // 只有最后一个命令(计数归零)才恢复界面按钮。
+    quint32 m_u32MotionSeqRemaining = 0;                   // 序列中尚未完成的命令数(运动段+间隔段)
+    QTimer *m_pMotionSeqWatchdog = nullptr;                // 异常兜底(响应超时清队等导致计数卡住时强制恢复)
+    void SendButtonMotion(const ButtonParams &Button, const float fTimeUseOverride, const float fVoltageOverride = -1.0f);
+    void StartGatherSequence(void);
+    void ResetMotionSequence(void);
+
+    // ---- 组合运动 G1 / G2 ----
+    // G1Widget / G2Widget 里各嵌入一个 GroupMotion 表单(S1~S8: 动作类型 + 运行时间)。
+    // 点 pbG1/pbG2 时按 S1..S8 的顺序逐条下发: 电压/频率/角度/速度取该运动类型
+    // 自己的按钮参数, 只有执行时间取表单里填的时间。
+    // 与交替序列共用同一套"一次性入队 + 完成帧驱动 + 计数恢复按钮"机制。
+    GroupMotion *m_pGroupMotion1 = nullptr;
+    GroupMotion *m_pGroupMotion2 = nullptr;
+    void StartGroupMotionSequence(GroupMotion *pGroupMotion, const QString &qstrGroupName);
+    const ButtonParams *FindButtonByMotion(const GeneralMotion::MotionParams::MotionIndex eMotion) const;
+
     void SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle);
     int16_t ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue);
 
@@ -74,6 +104,8 @@ private slots:
     void on_dspbTime_valueChanged(double arg1);
     void on_pbSendMotion_clicked();
     void on_pbSendMotionStop_clicked();
+    void on_pbG1_clicked();
+    void on_pbG2_clicked();
     void on_dialAngleRegulation_valueChanged(int value);
     void on_hsldSpeed_valueChanged(int value);
     void on_pbBinStartMotion_clicked();

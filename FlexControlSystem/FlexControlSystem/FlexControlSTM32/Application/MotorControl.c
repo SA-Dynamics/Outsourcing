@@ -597,6 +597,7 @@ struct
 
 static bool MoveHGatherMode(void);
 static bool MoveVGatherMode(void);
+static void GatherRampDownUpdate(void);
 
 volatile uint32_t u32Test = 0;
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) 
@@ -972,7 +973,7 @@ static bool MoveUpMode(void)
 		default:
 			break;			
 	}
-	
+	GatherRampDownUpdate();
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		
@@ -1117,7 +1118,7 @@ static bool MoveDownMode(void)
 			break;			
 	}
 	
-	
+	GatherRampDownUpdate();
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{		
 		StopPWM_IT();
@@ -1250,7 +1251,7 @@ static bool MoveLeftMode(void)
 			break;			
 	}
 	
-	
+	GatherRampDownUpdate();
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		StopPWM_IT();
@@ -1390,7 +1391,7 @@ static bool MoveRightMode(void)
 			break;			
 	}
 	
-	
+	GatherRampDownUpdate();
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		StopPWM_IT();
@@ -1718,6 +1719,60 @@ static bool MoveDisperseMode(void)
 
 uint32_t u32WaveCountTemp = 0;
 uint32_t u32HGatherOffsetTest = 400;
+
+// ===== 交替居中(H/V Gather)模式的收尾渐减 =====
+// 每个运动进入最后 GATHER_RAMP_DOWN_MS 时, 四个电机的 u32DutyZoom 按剩余时间比例逐渐减小。
+// 占空比由 PWM 周期回调(HAL_TIM_PWM_PulseFinishedCallback)每周期用 u32DutyZoom 现算,
+// 所以在这里缩放 u32DutyZoom, 振幅就会随 PWM 周期平滑衰减到 0, 起到"软停机"效果。
+#define GATHER_RAMP_DOWN_MS 200
+
+static uint32_t s_au32GatherDutyZoomSave[4] = {0};
+static bool s_bGatherRampSaved = false;
+
+static void GatherRampDownUpdate(void)
+{
+	const uint32_t u32Elapsed = GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount());
+	const uint32_t u32Total = g_sMotionControl.u32TimeUseExpect;
+
+	// 每条运动只记录一次原始幅值(PrepareMotion 在每条运动开始时会重写 u32DutyZoom)
+	if (!s_bGatherRampSaved)
+	{
+		for (uint8_t i = 0; i < 4; i++)
+		{
+			s_au32GatherDutyZoomSave[i] = g_sMotorControl.sMotor[i].u32DutyZoom;
+		}
+		s_bGatherRampSaved = true;
+	}
+
+	// 还没进入最后 200ms, 保持原始幅值
+	if (u32Elapsed + GATHER_RAMP_DOWN_MS < u32Total)
+	{
+		return;
+	}
+
+	// 渐减区: 缩放系数 = 剩余时间 / 200ms, 用 Q15 表示
+	const uint32_t u32Remain = (u32Total > u32Elapsed) ? (u32Total - u32Elapsed) : 0;
+	const uint32_t u32Scale = (u32Remain * 32768u) / GATHER_RAMP_DOWN_MS;
+
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		g_sMotorControl.sMotor[i].u32DutyZoom = (s_au32GatherDutyZoomSave[i] * u32Scale) >> 15;
+	}
+}
+
+// 恢复原始幅值(运动正常结束/停止时调用, 防止渐减后的小值残留到下一条运动)
+static void GatherRampDownRestore(void)
+{
+	if (s_bGatherRampSaved)
+	{
+		for (uint8_t i = 0; i < 4; i++)
+		{
+			g_sMotorControl.sMotor[i].u32DutyZoom = s_au32GatherDutyZoomSave[i];
+		}
+		s_bGatherRampSaved = false;
+	}
+}
+
 // 水平居中
 static bool MoveHGatherMode(void)
 {
@@ -2000,8 +2055,12 @@ static bool MoveHGatherMode(void)
 	}
 
 	
+	// 收尾渐减: 最后 200ms 内 u32DutyZoom 随剩余时间线性减小
+	GatherRampDownUpdate();
+
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
+		GatherRampDownRestore();
 		
 		StopPWM_IT();
 		
@@ -2266,6 +2325,118 @@ static bool MoveVGatherMode(void)
 			break;			
 	}
 	
+	// 收尾渐减: 最后 200ms 内 u32DutyZoom 随剩余时间线性减小
+	GatherRampDownUpdate();
+
+	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
+	{
+		GatherRampDownRestore();
+		StopPWM_IT();
+		
+		CbMotionFinish(g_sMotionControl.u8Index);
+		MotionEndHandler();
+		bRet = true;
+	}
+	
+		
+	return bRet;
+}
+
+
+static bool MoveFlip(void)
+{
+	bool bRet = false;
+	
+	enum
+	{
+		START_TIME = 0,
+		INIT_MOTION,
+		PREPARE_MOTION,
+		WAIT_MOTION1GROUP_STOP,
+		WAIT_MOTION2GROUP_STOP,
+		CHECK_DIR_COUNT,
+	};
+	
+	static uint32_t u32TimeWait = 0;
+	
+	switch (g_sMotionControl.u8FSMStep)
+	{
+		case START_TIME:
+			ResetTimerCount(&g_sMotionControl.u32TimerCount);
+			g_sMotionControl.u8FSMStep = INIT_MOTION;
+			break;
+		
+		case INIT_MOTION:
+			g_sMotionControl.u8FSMStep = PREPARE_MOTION;	
+			for (uint8_t i = 0; i < 4; i++)
+			{
+				g_sMotorControl.sMotor[i].u32Index = 0;
+				g_sMotorControl.sMotor[i].pActivePolarity = &g_sMotorControl.sMotor[i].sPolarityP;
+			
+				g_sMotorControl.sMotor[i].u16Duty = (g_s16DutyTable1Cycle[g_sMotorControl.sMotor[i].u32Index >> 15] * 
+					g_sMotorControl.sMotor[i].u32DutyZoom) >> 15;
+				__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[i].pActivePolarity->htim, 
+											g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel, 
+											g_sMotorControl.sMotor[i].u16Duty); 	
+			}
+			break;
+		
+		case PREPARE_MOTION:
+			g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+			for (uint8_t i = 0; i < 4; i++)
+			{
+				g_sMotorControl.sMotor[i].bStartFlag = true;
+				g_sMotorControl.sMotor[i].u16DirChangeCount = 0;
+				HAL_TIM_PWM_Start_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+			}
+			break;
+			
+		case WAIT_MOTION1GROUP_STOP:
+//			if (!g_sMotorControl.sMotor[0].bStartFlag && !g_sMotorControl.sMotor[1].bStartFlag &&
+//				!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+		
+			if ((g_sMotorControl.sMotor[0].u32Index >> 15) >= 800 && (g_sMotorControl.sMotor[1].u32Index >> 15) >= 800 &&
+				(g_sMotorControl.sMotor[2].u32Index >> 15) >= 800 && (g_sMotorControl.sMotor[3].u32Index >> 15) >= 800)
+			{				
+				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+				ResetTimerCount(&u32TimeWait);
+			}
+			break;
+			
+		case WAIT_MOTION2GROUP_STOP:
+			if (!g_sMotorControl.sMotor[2].bStartFlag && !g_sMotorControl.sMotor[3].bStartFlag)
+			{
+				g_sMotionControl.u8FSMStep = CHECK_DIR_COUNT;
+				
+			}
+			break;
+			
+		case CHECK_DIR_COUNT:
+//			if (g_sMotorControl.sMotor[0].u16DirChangeCount == 2 && g_sMotorControl.sMotor[1].u16DirChangeCount == 2 &&
+//				g_sMotorControl.sMotor[2].u16DirChangeCount == 2 && g_sMotorControl.sMotor[3].u16DirChangeCount == 2)
+			{
+				for (uint8_t i = 0; i < 4; i++)
+				{
+					HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[i].pActivePolarity->htim, g_sMotorControl.sMotor[i].pActivePolarity->u32CmpChannel);
+				}
+				
+				if (GetTimerTickDelta(u32TimeWait, GetCurTimerCount()) >= 2)
+				{
+					g_sMotionControl.u8FSMStep = INIT_MOTION;
+				}
+				
+			}
+//			else
+//			{
+//				g_sMotionControl.u8FSMStep = WAIT_MOTION1GROUP_STOP;
+//			}
+			break;
+			
+		default:
+			break;			
+	}
+	
+	
 	if (GetTimerTickDelta(g_sMotionControl.u32TimerCount, GetCurTimerCount()) >= g_sMotionControl.u32TimeUseExpect)
 	{
 		StopPWM_IT();
@@ -2278,7 +2449,6 @@ static bool MoveVGatherMode(void)
 		
 	return bRet;
 }
-
 
 // 料仓
 //bool MoveBin(void)
@@ -2356,6 +2526,9 @@ void MotorControlStop(void)
 	// 停止当前运动
 	g_sMotionControl.pControlFunc = MoveNone;
 	
+	// 若交替居中的收尾渐减正在进行, 恢复各电机原始幅值(PrepareMotion 会在下条运动重写, 这里防止小值残留)
+	GatherRampDownRestore();
+	
 	// 将运动序列中的所有运动清除
 	HAL_TIM_PWM_Stop_IT(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel);
 	__HAL_TIM_SET_COMPARE(g_sMotorControl.sMotor[0].sPolarityP.htim, g_sMotorControl.sMotor[0].sPolarityP.u32CmpChannel, 0);
@@ -2420,7 +2593,7 @@ static void GetMotionFunc(const MotionIndex eIndex)
 			break;
 		
 		case MOTION_FLIP:
-//			g_sMotionControl.pControlFunc = MoveBin;
+			g_sMotionControl.pControlFunc = MoveFlip;
 			break;
 		
 		default:

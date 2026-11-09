@@ -22,6 +22,7 @@ SOURCES += \
     controlpanel.cpp \
     controlsettings.cpp \
     generalprotocol.cpp \
+    groupmotion.cpp \
     main.cpp \
     controlwidget.cpp \
     rs485handle.cpp \
@@ -34,12 +35,14 @@ HEADERS += \
     controlsettings.h \
     controlwidget.h \
     generalprotocol.h \
+    groupmotion.h \
     rs485handle.h \
     tcphandle.h
 
 FORMS += \
     controlpanel.ui \
-    controlwidget.ui
+    controlwidget.ui \
+    groupmotion.ui
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

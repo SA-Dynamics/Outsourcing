@@ -1,9 +1,11 @@
 #include "controlpanel.h"
 #include "ui_controlpanel.h"
+#include "groupmotion.h"
 #include <QDebug>
 #include <QFile>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QVBoxLayout>
 
 
 
@@ -23,9 +25,22 @@ ControlPanel::ControlPanel(QWidget *parent) :
 
     ui->dialAngleRegulation->setTracking(true);
 
-    ui->pbG1->hide();
-    ui->pbG2->hide();
-    ui->pbFlip->hide();
+    // 组合运动表单: 把 groupmotion 分别嵌进 G1Widget / G2Widget 两个容器
+    // (容器是 .ui 里的空 QWidget, 这里给它套一层无边距布局)
+    m_pGroupMotion1 = new GroupMotion(ui->G1Widget);
+    m_pGroupMotion2 = new GroupMotion(ui->G2Widget);
+
+    QVBoxLayout *pLayoutG1 = new QVBoxLayout(ui->G1Widget);
+    pLayoutG1->setContentsMargins(0, 0, 0, 0);
+    pLayoutG1->addWidget(m_pGroupMotion1);
+
+    QVBoxLayout *pLayoutG2 = new QVBoxLayout(ui->G2Widget);
+    pLayoutG2->setContentsMargins(0, 0, 0, 0);
+    pLayoutG2->addWidget(m_pGroupMotion2);
+
+//    ui->pbG1->hide();
+//    ui->pbG2->hide();
+//    ui->pbFlip->hide();
     ui->hsldSpeed->hide();
     ui->lbSpeed->hide();
 
@@ -71,6 +86,10 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->pbSendMotion, SIGNAL(clicked()), this, SLOT(on_pbSendMotion_clicked()));
     connect(ui->pbSendMotionStop, SIGNAL(clicked()), this, SLOT(on_pbSendMotionStop_clicked()));
 
+    // 组合运动 G1 / G2(同样必须手动 connect)
+    connect(ui->pbG1, SIGNAL(clicked()), this, SLOT(on_pbG1_clicked()));
+    connect(ui->pbG2, SIGNAL(clicked()), this, SLOT(on_pbG2_clicked()));
+
     connect(ui->dialAngleRegulation, &QDial::valueChanged, this, &ControlPanel::on_dialAngleRegulation_valueChanged);
     connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
 
@@ -84,6 +103,32 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->pbOpenLightB, SIGNAL(clicked()), this, SLOT(on_pbOpenLightB_clicked()));
     connect(ui->pbCloseLihgtB, SIGNAL(clicked()), this, SLOT(on_pbCloseLihgtB_clicked()));
 
+    // 交替居中序列的三个时间参数(模式数据面板, 单位: 秒):
+    // 默认值与此前固化的 0.8s / 0.8s / 0.1s 行为一致
+    ui->dspHMotionTime->setValue(0.8);
+    ui->dspVMotionTime->setValue(0.8);
+    ui->dspIntervalTime->setValue(0.1);
+
+    // pbGather 交替序列的兜底: 若中途某段响应超时(引擎清空队列, 剩余段不会再有完成帧),
+    // 计数会卡住, 界面按钮永远不恢复 —— 到点强制复位
+    m_pMotionSeqWatchdog = new QTimer(this);
+    m_pMotionSeqWatchdog->setSingleShot(true);
+    connect(m_pMotionSeqWatchdog, &QTimer::timeout, this, [this]() {
+        if (m_u32MotionSeqRemaining > 0)
+        {
+            qWarning() << "motion sequence watchdog timeout, force reset";
+            ResetMotionSequence();
+
+            if (!m_bReadOnly)
+            {
+                ui->pbSendMotion->setEnabled(true);
+                ui->pbSendMotionStop->setEnabled(false);
+                ui->pbG1->setEnabled(true);
+                ui->pbG2->setEnabled(true);
+            }
+        }
+    });
+
     connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
         // 只读面板(模式数据)的按钮被 SetReadOnly 禁用, 不能被这里"恢复"回可点状态
         if (m_bReadOnly)
@@ -91,9 +136,25 @@ ControlPanel::ControlPanel(QWidget *parent) :
             return;
         }
 
-        // 统一恢复: 振动盘 / 料仓 / 光源按钮回到空闲态
+        // pbGather 交替序列: 每条命令(运动段或间隔段)完成触发一次本信号,
+        // 中间的命令不恢复按钮, 最后一条才恢复
+        if (m_u32MotionSeqRemaining > 0)
+        {
+            m_u32MotionSeqRemaining--;
+
+            if (m_u32MotionSeqRemaining > 0)
+            {
+                return;
+            }
+
+            ResetMotionSequence();   // 计数归零, 序列正常结束, 落入下方统一恢复
+        }
+
+        // 统一恢复: 振动盘 / 料仓 / 光源 / 组合运动按钮回到空闲态
         ui->pbSendMotion->setEnabled(true);
         ui->pbSendMotionStop->setEnabled(false);
+        ui->pbG1->setEnabled(true);
+        ui->pbG2->setEnabled(true);
         ui->pbBinStartMotion->setEnabled(true);
         ui->pbBinStopMotion->setEnabled(false);
         ui->pbOpenLightA->setEnabled(true);
@@ -126,6 +187,8 @@ void ControlPanel::SetReadOnly(const bool bReadOnly)
         // 否则点击后按钮会被置灰且永远收不到 sigMotionTerminate 恢复, 表现为"点了没反应"
         ui->pbSendMotion->setEnabled(false);
         ui->pbSendMotionStop->setEnabled(false);
+        ui->pbG1->setEnabled(false);
+        ui->pbG2->setEnabled(false);
         ui->pbBinStartMotion->setEnabled(false);
         ui->pbBinStopMotion->setEnabled(false);
         ui->pbOpenLightA->setEnabled(false);
@@ -301,30 +364,269 @@ void ControlPanel::on_dspbTime_valueChanged(double arg1)
 }
 
 
+// 将某个运动按钮的参数组帧下发(fTimeUseOverride > 0 时覆盖该按钮自己的执行时长;
+// fVoltageOverride >= 0 时覆盖该按钮自己的电压 —— 交替序列的间隔段用 0V 实现)
+void ControlPanel::SendButtonMotion(const ButtonParams &Button, const float fTimeUseOverride, const float fVoltageOverride)
+{
+    if (Button.qlstMotionParams.isEmpty())
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+
+    GeneralMotion::MotionParams sParams;
+    sParams.eIndex = Button.eMotion;
+    sParams.fVoltage = (fVoltageOverride >= 0) ? fVoltageOverride
+                                               : Button.qlstMotionParams.first().value("voltage").toFloat();
+    sParams.fFrequency = Button.qlstMotionParams.first().value("frequency").toFloat();
+    sParams.fTimeUse = (fTimeUseOverride > 0) ? fTimeUseOverride
+                                              : Button.qlstMotionParams.first().value("timeuse").toFloat();
+    sParams.s16AngleOffset = Button.qlstMotionParams.first().value("angle_offset").toInt();
+    sParams.u8SpeedCoeff = Button.qlstMotionParams.first().value("speed").toInt();
+
+    m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
+
+    emit sigMotion(qbtData, qbtRespond);
+}
+
+
+// pbGather 交替序列: 交替下发 pbHCentered / pbVCentered 的参数。
+// 每段时长取 ui->dspHMotionTime / dspVMotionTime(两者可不同), 段间静止间隔取 ui->dspIntervalTime
+// (间隔 0 表示无缝衔接); 段数累计到 Gather 按钮自身 timeuse 为止(至少 1 段)。
+// 所有段一次性入队, 引擎逐段下发(每段等下位机完成回帧后才发下一段)。
+void ControlPanel::StartGatherSequence(void)
+{
+    const ButtonParams *pGather = nullptr;
+    const ButtonParams *pHCentered = nullptr;
+    const ButtonParams *pVCentered = nullptr;
+
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (Button.qstrName == "MotionGather")
+        {
+            pGather = &Button;
+        }
+        else if (Button.qstrName == "MotionHCentered")
+        {
+            pHCentered = &Button;
+        }
+        else if (Button.qstrName == "MotionVCentered")
+        {
+            pVCentered = &Button;
+        }
+    }
+
+    if (!pGather || !pHCentered || !pVCentered)
+    {
+        qWarning() << "gather sequence: button params missing";
+        return;
+    }
+
+    if (pGather->qlstMotionParams.isEmpty())
+    {
+        return;
+    }
+
+    // 总执行时间取 pbGather 按钮自己的 timeuse
+    const int iTotalMs = qRound(pGather->qlstMotionParams.first().value("timeuse").toFloat() * 1000.0f);
+
+    // 交替序列的三个时间参数取自模式数据面板(单位: 秒 -> 毫秒)
+    // 段时长下限 10ms, 防止 0 值生成大量空指令; 间隔为 0 表示段间不停
+    const int iSegHMs = qMax(10, qRound(ui->dspHMotionTime->value() * 1000.0f));
+    const int iSegVMs = qMax(10, qRound(ui->dspVMotionTime->value() * 1000.0f));
+    const int iGapMs  = qMax(0,  qRound(ui->dspIntervalTime->value() * 1000.0f));
+
+    // 先排段: 从水平居中开始 H / V / H / V 交替, 逐段累计运动时长,
+    // 累计刚达到/超过总时长就停止(至少 1 段) —— H/V 段时长可以不同, 不能再用整除算段数
+    struct SeqSeg
+    {
+        const ButtonParams *pButton;
+        int iMs;
+    };
+    QVector<SeqSeg> lstSegs;
+    int iMotionMs = 0;
+    for (int i = 0; i < 1000; i++)     // 1000 段上限, 防参数异常导致死循环
+    {
+        const bool bIsH = (i % 2 == 0);
+        lstSegs.append({ bIsH ? pHCentered : pVCentered, bIsH ? iSegHMs : iSegVMs });
+        iMotionMs += lstSegs.last().iMs;
+
+        if (iMotionMs >= iTotalMs)
+        {
+            break;
+        }
+    }
+
+    // 逐段入队: H [间隔] V [间隔] H ...
+    // 间隔段 = 一条 0V 的运动指令: 下位机占空比为 0, 音圈电机断电静止,
+    // 按间隔时长计时后照常回完成帧 —— 引擎节拍与应答匹配逻辑不变, 间隔由下位机保证
+    // (间隔为 0 时不插间隔段, 段与段无缝衔接)
+    m_u32MotionSeqRemaining = 0;
+    int iWallMs = 0;
+    for (int i = 0; i < lstSegs.size(); i++)
+    {
+        const SeqSeg &Seg = lstSegs[i];
+        SendButtonMotion(*Seg.pButton, Seg.iMs / 1000.0f);
+        m_u32MotionSeqRemaining++;
+        iWallMs += Seg.iMs;
+
+        if (i + 1 < lstSegs.size() && iGapMs > 0)
+        {
+            SendButtonMotion(*Seg.pButton, iGapMs / 1000.0f, 0.0f);
+            m_u32MotionSeqRemaining++;
+            iWallMs += iGapMs;
+        }
+    }
+
+    qDebug() << "gather sequence:" << lstSegs.size() << "motions,"
+             << (iGapMs > 0 ? lstSegs.size() - 1 : 0) << "gaps,"
+             << iMotionMs << "ms motion," << iWallMs << "ms wall, expect" << iTotalMs << "ms"
+             << "(H" << iSegHMs << "ms V" << iSegVMs << "ms gap" << iGapMs << "ms)";
+
+    // 序列运行期间锁住 G1/G2, 防止两种序列互相清计数(完成/停止时统一恢复)
+    ui->pbG1->setEnabled(false);
+    ui->pbG2->setEnabled(false);
+
+    // 兜底: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量
+    if (m_pMotionSeqWatchdog)
+    {
+        m_pMotionSeqWatchdog->start(iWallMs + static_cast<int>(m_u32MotionSeqRemaining) * 2200 + 1000);
+    }
+}
+
+
+// 复位序列状态(不清通信队列; 需要停运动由停止指令负责)
+void ControlPanel::ResetMotionSequence(void)
+{
+    m_u32MotionSeqRemaining = 0;
+
+    if (m_pMotionSeqWatchdog)
+    {
+        m_pMotionSeqWatchdog->stop();
+    }
+}
+
+
+// 按运动类型找到对应的按钮参数(电压/频率/角度/速度都从这里取)
+const ControlPanel::ButtonParams *ControlPanel::FindButtonByMotion(const GeneralMotion::MotionParams::MotionIndex eMotion) const
+{
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (Button.eMotion == eMotion && !Button.qlstMotionParams.isEmpty())
+        {
+            return &Button;
+        }
+    }
+
+    return nullptr;
+}
+
+
+// 组合运动 G1 / G2: 按 S1..S8 的顺序逐条下发。
+// 每条指令的电压/频率/角度/速度取该运动类型自己的按钮参数, 只有执行时间取表单里填的时间。
+// 与交替居中序列一样: 所有命令一次性入队, 节拍由下位机完成回帧驱动, 无累计漂移;
+// 计数归零才恢复按钮, 中途可用"停止"打断。
+void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QString &qstrGroupName)
+{
+    if (m_bReadOnly || pGroupMotion == nullptr)
+    {
+        return;
+    }
+
+    // 已有序列在跑(按钮此时应已禁用, 这里兜底): 不能中途重置计数, 否则按钮会提前恢复
+    if (m_u32MotionSeqRemaining > 0)
+    {
+        qWarning() << qstrGroupName << "sequence ignored: another sequence is running";
+        return;
+    }
+
+    const QVector<GroupMotion::Step> lstSteps = pGroupMotion->GetSteps();
+    if (lstSteps.isEmpty())
+    {
+        qWarning() << qstrGroupName << "sequence: no valid step (all times are 0)";
+        return;
+    }
+
+    // 清掉可能残留的序列计数, 避免误吞本次序列的完成信号
+    ResetMotionSequence();
+
+    quint32 u32Count = 0;
+    int iWallMs = 0;
+    for (const GroupMotion::Step &Step : lstSteps)
+    {
+        const ButtonParams *pButton = FindButtonByMotion(Step.eMotion);
+        if (pButton == nullptr)
+        {
+            qWarning() << qstrGroupName << "sequence: no button params for motion"
+                       << static_cast<int>(Step.eMotion);
+            continue;
+        }
+
+        SendButtonMotion(*pButton, Step.fTimeUse);
+        u32Count++;
+        iWallMs += qRound(Step.fTimeUse * 1000.0f);
+    }
+
+    if (u32Count == 0)
+    {
+        qWarning() << qstrGroupName << "sequence: nothing queued";
+        return;
+    }
+
+    m_u32MotionSeqRemaining = u32Count;
+
+    qDebug() << qstrGroupName << "sequence:" << u32Count << "steps," << iWallMs << "ms";
+
+    ui->pbSendMotion->setEnabled(false);
+    ui->pbSendMotionStop->setEnabled(true);
+    ui->pbG1->setEnabled(false);
+    ui->pbG2->setEnabled(false);
+
+    // 兜底: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量
+    if (m_pMotionSeqWatchdog)
+    {
+        m_pMotionSeqWatchdog->start(iWallMs + static_cast<int>(u32Count) * 2200 + 1000);
+    }
+}
+
+
+void ControlPanel::on_pbG1_clicked()
+{
+    StartGroupMotionSequence(m_pGroupMotion1, "G1");
+}
+
+
+void ControlPanel::on_pbG2_clicked()
+{
+    StartGroupMotionSequence(m_pGroupMotion2, "G2");
+}
+
+
 void ControlPanel::on_pbSendMotion_clicked()
-{    
+{
     for (ButtonParams &Button : m_lstMotionButtons)
     {
         if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
-        {        
-            // 发送运动信号
-            QByteArray qbtData;
-            QByteArray qbtRespond;
-
-            GeneralMotion::MotionParams sParams;
-            sParams.eIndex = Button.eMotion;
-            sParams.fVoltage = Button.qlstMotionParams.first().value("voltage").toFloat();
-            sParams.fFrequency = Button.qlstMotionParams.first().value("frequency").toFloat();
-            sParams.fTimeUse = Button.qlstMotionParams.first().value("timeuse").toFloat();
-            sParams.s16AngleOffset = Button.qlstMotionParams.first().value("angle_offset").toInt();
-            sParams.u8SpeedCoeff = Button.qlstMotionParams.first().value("speed").toInt();
-
-            m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
-
-            emit sigMotion(qbtData, qbtRespond);
+        {
+            if (Button.qstrName == "MotionGather")
+            {
+                // pbGather: 不下发自己的内容, 交替下发 水平居中/垂直居中 的内容
+                StartGatherSequence();
+            }
+            else
+            {
+                // 普通运动: 先清掉可能残留的序列计数, 避免误吞本次运动的完成信号
+                ResetMotionSequence();
+                SendButtonMotion(Button, -1.0f);
+            }
 
             ui->pbSendMotion->setEnabled(false);
             ui->pbSendMotionStop->setEnabled(true);
+            // 运动进行中锁住 G1/G2, 避免序列计数被当前运动的完成帧误吞
+            ui->pbG1->setEnabled(false);
+            ui->pbG2->setEnabled(false);
         }
     }
 }
@@ -332,6 +634,11 @@ void ControlPanel::on_pbSendMotion_clicked()
 
 void ControlPanel::on_pbSendMotionStop_clicked()
 {
+    // 停止所有运动; 交替序列也要终止:
+    // 停止指令会清空引擎里未完成的运动队列段, 这里同步复位序列计数,
+    // 随后到来的 sigMotionTerminate 会按"普通完成"路径恢复按钮
+    ResetMotionSequence();
+
     // 停止所有运动
     emit sigStopMotion();
 }
@@ -511,6 +818,16 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
     ui->spLightATime->setValue(pOther->ui->spLightATime->value());
     ui->spLightBBrightness->setValue(pOther->ui->spLightBBrightness->value());
     ui->spLightBTime->setValue(pOther->ui->spLightBTime->value());
+
+    // 组合运动 G1/G2: 8 步的动作类型与运行时间同步拷贝
+    if (m_pGroupMotion1 != nullptr && pOther->m_pGroupMotion1 != nullptr)
+    {
+        m_pGroupMotion1->CopyFrom(pOther->m_pGroupMotion1);
+    }
+    if (m_pGroupMotion2 != nullptr && pOther->m_pGroupMotion2 != nullptr)
+    {
+        m_pGroupMotion2->CopyFrom(pOther->m_pGroupMotion2);
+    }
 
     // 界面刷新所有按钮对应的参数(控件组只有一套, 依次刷新, 最终停留为最后
     // 一个按钮的值); 刷新期间必须屏蔽 valueChanged 信号, 否则槽会把遍历中的
