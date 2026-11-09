@@ -2695,7 +2695,7 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 		fVoltage = MAX_VOLTAGE_VALUE;
 	}
 	// 得到一个放大后的整形值, 便于计算
-	if (pParams->eMotionIndex != MOTION_FLIP)
+//	if (pParams->eMotionIndex != MOTION_FLIP)
 	{
 		for (uint8_t i = 0; i < 4; i++)
 		{
@@ -2703,11 +2703,11 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 			g_sMotorControl.sMotor[i].u32Index = 0;
 		}
 	}
-	else
-	{
-		g_sMotorControl.sMotor[4].u32DutyZoom = (uint16_t)(fVoltage / MAX_VOLTAGE_VALUE * 32768.0f);
-		g_sMotorControl.sMotor[4].u32Index = 0;
-	}
+//	else
+//	{
+//		g_sMotorControl.sMotor[4].u32DutyZoom = (uint16_t)(fVoltage / MAX_VOLTAGE_VALUE * 32768.0f);
+//		g_sMotorControl.sMotor[4].u32Index = 0;
+//	}
 	
 	
 	
@@ -2730,7 +2730,7 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 	// 计算查表跨度, 需要得到的是1周期的PWM总数, 进而得到索引每次需要增加多少
 	uint16_t u16PWMCount = (uint16_t)(1.0f / fFrequency / fPulseCycle);
 	
-	if (pParams->eMotionIndex != MOTION_FLIP)
+//	if (pParams->eMotionIndex != MOTION_FLIP)
 	{
 		for (uint8_t i = 0; i < 4; i++)
 		{
@@ -2742,10 +2742,10 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 		ENABLE_LEFT_BOTTUM(0);
 		ENABLE_RIGHT_BOTTUM(0);
 	}
-	else
-	{
-		g_sMotorControl.sMotor[4].u32Span = (uint32_t)(fPWMCount10HzCycle * 32768.0f / u16PWMCount);
-	}
+//	else
+//	{
+//		g_sMotorControl.sMotor[4].u32Span = (uint32_t)(fPWMCount10HzCycle * 32768.0f / u16PWMCount);
+//	}
 	
 	g_sMotionControl.u8FSMStep = 0;
 	g_sMotionControl.u8CombinationFSMStep = 0;

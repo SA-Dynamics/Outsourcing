@@ -3,6 +3,7 @@
 #include "MotorControl.h"
 #include "BinControl.h"
 #include "LightControl.h"
+#include "LinkState.h"
 #include "Network.h"
 #include "Timer.h"
 
@@ -117,6 +118,8 @@ void SerialRecvInfoHandle(void)
 		{
 			case INFO_HEART:
 				SetNormal(true);
+				// 心跳喂狗: 仅在收到心跳时才认为"连接正常"
+				LinkStateOnHeartBeat();
 				// 发送心跳给上位机
 				HeartBeatHandler();
 				break;
@@ -179,6 +182,7 @@ static void NetworkRetryHandle(void)
 void FlexControlInit(void)
 {
 	SerialHandleInit();
+	LinkStateInit();
 	MotionControlInit();
 	BinControlInit();
 	LightControlInit();
@@ -192,6 +196,10 @@ void FlexControlHandle(void)
 {
 	SerialRecvInfoHandle();
 	SerialDataHandle();
+
+	// 链路状态机: 等待连接 -> 已连接 -> 心跳超时(停执行器并复位)
+	// 放在接收处理之后, 保证本轮收到的心跳已经喂过计时器
+	LinkStateHandle();
 
 //	// 未初始化成功时内部只做计时, 不访问 W5500, 不占用 SPI 总线
 //	NetworkRetryHandle();

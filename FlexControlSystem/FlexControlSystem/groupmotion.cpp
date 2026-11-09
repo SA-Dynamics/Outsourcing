@@ -122,6 +122,67 @@ QVector<GroupMotion::Step> GroupMotion::GetSteps(void) const
 }
 
 
+QVector<GroupMotion::Step> GroupMotion::GetAllSteps(void) const
+{
+    QVector<Step> lstSteps;
+
+    QComboBox *apCombo[8] =
+    {
+        ui->cbS1, ui->cbS2, ui->cbS3, ui->cbS4,
+        ui->cbS5, ui->cbS6, ui->cbS7, ui->cbS8
+    };
+
+    QDoubleSpinBox *apTime[8] =
+    {
+        ui->dspS1Time, ui->dspS2Time, ui->dspS3Time, ui->dspS4Time,
+        ui->dspS5Time, ui->dspS6Time, ui->dspS7Time, ui->dspS8Time
+    };
+
+    // 与 GetSteps 的区别: 这里不跳过时间为 0 的步, 保证 8 步能原样存回 ini
+    for (int i = 0; i < 8; i++)
+    {
+        Step sStep;
+        sStep.eMotion = static_cast<GeneralMotion::MotionParams::MotionIndex>(
+                            apCombo[i]->currentData().toInt());
+        sStep.fTimeUse = static_cast<float>(apTime[i]->value());
+
+        lstSteps.append(sStep);
+    }
+
+    return lstSteps;
+}
+
+
+void GroupMotion::SetStep(const int iIndex, const int iMotion, const float fTimeUse)
+{
+    if (iIndex < 0 || iIndex >= 8)
+    {
+        return;
+    }
+
+    QComboBox *apCombo[8] =
+    {
+        ui->cbS1, ui->cbS2, ui->cbS3, ui->cbS4,
+        ui->cbS5, ui->cbS6, ui->cbS7, ui->cbS8
+    };
+
+    QDoubleSpinBox *apTime[8] =
+    {
+        ui->dspS1Time, ui->dspS2Time, ui->dspS3Time, ui->dspS4Time,
+        ui->dspS5Time, ui->dspS6Time, ui->dspS7Time, ui->dspS8Time
+    };
+
+    // 按枚举值反查下拉项: 找不到(例如 ini 里存的是已删除的动作类型)就保留原选项
+    const int iItemIndex = apCombo[iIndex]->findData(iMotion);
+    if (iItemIndex >= 0)
+    {
+        apCombo[iIndex]->setCurrentIndex(iItemIndex);
+    }
+
+    apTime[iIndex]->setValue(static_cast<double>(fTimeUse));
+}
+
+
 void GroupMotion::CopyFrom(const GroupMotion *pOther)
 {
     if (pOther == nullptr || pOther == this)

@@ -223,6 +223,25 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     QSettings Settings(qstrSettingFile, QSettings::IniFormat);
     Settings.setIniCodec("UTF-8");
 
+    // 读取一个数值键: 键缺失、或值非法(例如 ini 里被写成空值 @Variant(...))时返回 dDefault。
+    // bMustPositive=true 的项(电压/频率)还要求 >0 —— 0V/0Hz 下发后下位机不会动作,
+    // 表现为"点了发送没反应", 必须在这一层挡住(否则 SaveSettings 还会把坏值原样写回, 永久失效)
+    auto ReadNumber = [&Settings, &qstrSettingFile](const QString &qstrKey,
+                                                    const double dDefault,
+                                                    const bool bMustPositive) -> double {
+        const QVariant vValue = Settings.value(qstrKey);
+        bool bOk = false;
+        const double dValue = vValue.toDouble(&bOk);
+
+        if (!bOk || (bMustPositive && dValue <= 0.0))
+        {
+            qWarning() << "配置项无效, 使用默认值:" << qstrSettingFile << qstrKey << vValue << "->" << dDefault;
+            return dDefault;
+        }
+
+        return dValue;
+    };
+
     for (ButtonParams &Button : m_lstMotionButtons)
     {
         Settings.beginGroup(Button.qstrName);
@@ -230,11 +249,11 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
         Button.qlstMotionParams =
         {
             {
-                {"frequency", Settings.value("frequency").toFloat()},
-                {"timeuse", Settings.value("timeuse").toFloat()},
-                {"voltage", Settings.value("voltage").toFloat()},
-                {"angle_offset", Settings.value("angle_offset").toInt()},
-                {"speed", Settings.value("speed").toInt()},
+                {"frequency", static_cast<float>(ReadNumber("frequency", 100.0, true))},
+                {"timeuse", static_cast<float>(ReadNumber("timeuse", 0.0, false))},
+                {"voltage", static_cast<float>(ReadNumber("voltage", 10.0, true))},
+                {"angle_offset", static_cast<int>(ReadNumber("angle_offset", 0.0, false))},
+                {"speed", static_cast<int>(ReadNumber("speed", 0.0, false))},
             },
         };
 
@@ -258,6 +277,46 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     ui->spLightBBrightness->setValue(Settings.value("brightness", ui->spLightBBrightness->value()).toInt());
     ui->spLightBTime->setValue(Settings.value("timeuse", ui->spLightBTime->value()).toInt());
     Settings.endGroup();
+
+    // 聚拢(交替居中)序列的三个时间参数: 水平居中段 / 垂直居中段 / 段间间隔(单位秒)
+    // 老配置没有这段时保留界面当前值(构造函数里的 0.8 / 0.8 / 0.1), 不被清成 0
+    Settings.beginGroup("GatherSequence");
+    if (Settings.contains("hmotion_time"))
+    {
+        ui->dspHMotionTime->setValue(Settings.value("hmotion_time").toDouble());
+    }
+    if (Settings.contains("vmotion_time"))
+    {
+        ui->dspVMotionTime->setValue(Settings.value("vmotion_time").toDouble());
+    }
+    if (Settings.contains("interval_time"))
+    {
+        ui->dspIntervalTime->setValue(Settings.value("interval_time").toDouble());
+    }
+    Settings.endGroup();
+
+    // 组合运动 G1/G2: 8 步的动作类型 + 运行时间
+    auto LoadGroupMotion = [&Settings](const QString &qstrGroup, GroupMotion *pGroup) {
+        // 整个组都不存在 = 老配置, 保持界面默认(每步 0.5s), 不要清零
+        if (pGroup == nullptr || !Settings.contains(qstrGroup + "/s1_motion"))
+        {
+            return;
+        }
+
+        for (int i = 0; i < 8; i++)
+        {
+            const QString qstrKey = qstrGroup + QString("/s%1_").arg(i + 1);
+
+            const int iMotion = Settings.value(qstrKey + "motion", -1).toInt();
+            const double dTime = Settings.value(qstrKey + "time", 0.0).toDouble();
+
+            // 动作类型非法时 SetStep 内部保留原选项, 时间照常恢复
+            pGroup->SetStep(i, iMotion, static_cast<float>(dTime));
+        }
+    };
+
+    LoadGroupMotion("GroupMotion1", m_pGroupMotion1);
+    LoadGroupMotion("GroupMotion2", m_pGroupMotion2);
 }
 
 
@@ -682,6 +741,34 @@ void ControlPanel::SaveSettings(void)
     Settings.setValue("brightness", ui->spLightBBrightness->value());
     Settings.setValue("timeuse", ui->spLightBTime->value());
     Settings.endGroup();
+
+    // 聚拢(交替居中)序列的时间参数
+    Settings.beginGroup("GatherSequence");
+    Settings.setValue("hmotion_time", ui->dspHMotionTime->value());
+    Settings.setValue("vmotion_time", ui->dspVMotionTime->value());
+    Settings.setValue("interval_time", ui->dspIntervalTime->value());
+    Settings.endGroup();
+
+    // 组合运动 G1/G2: 8 步的动作类型(枚举值) + 运行时间
+    auto SaveGroupMotion = [&Settings](const QString &qstrGroup, const GroupMotion *pGroup) {
+        if (pGroup == nullptr)
+        {
+            return;
+        }
+
+        const QVector<GroupMotion::Step> lstSteps = pGroup->GetAllSteps();
+
+        Settings.beginGroup(qstrGroup);
+        for (int i = 0; i < lstSteps.size(); i++)
+        {
+            Settings.setValue(QString("s%1_motion").arg(i + 1), static_cast<int>(lstSteps.at(i).eMotion));
+            Settings.setValue(QString("s%1_time").arg(i + 1), lstSteps.at(i).fTimeUse);
+        }
+        Settings.endGroup();
+    };
+
+    SaveGroupMotion("GroupMotion1", m_pGroupMotion1);
+    SaveGroupMotion("GroupMotion2", m_pGroupMotion2);
 }
 
 
@@ -818,6 +905,11 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
     ui->spLightATime->setValue(pOther->ui->spLightATime->value());
     ui->spLightBBrightness->setValue(pOther->ui->spLightBBrightness->value());
     ui->spLightBTime->setValue(pOther->ui->spLightBTime->value());
+
+    // 聚拢(交替居中)序列的三个时间参数也要互拷, 否则模式数据面板保存后会丢
+    ui->dspHMotionTime->setValue(pOther->ui->dspHMotionTime->value());
+    ui->dspVMotionTime->setValue(pOther->ui->dspVMotionTime->value());
+    ui->dspIntervalTime->setValue(pOther->ui->dspIntervalTime->value());
 
     // 组合运动 G1/G2: 8 步的动作类型与运行时间同步拷贝
     if (m_pGroupMotion1 != nullptr && pOther->m_pGroupMotion1 != nullptr)
