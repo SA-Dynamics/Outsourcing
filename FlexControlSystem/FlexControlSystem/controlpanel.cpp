@@ -93,6 +93,11 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->dialAngleRegulation, &QDial::valueChanged, this, &ControlPanel::on_dialAngleRegulation_valueChanged);
     connect(ui->hsldSpeed, &QDial::valueChanged, this, &ControlPanel::on_hsldSpeed_valueChanged);
 
+    // ModifyCoeff 两个滑块: 同样必须手动 connect(见 setupUi(parent) 的说明),
+    // 值在下发时直接读取, 这里连接是为了将来加"实时调节/即时存盘"时有落点
+    connect(ui->hsVModify, &QSlider::valueChanged, this, &ControlPanel::on_hsVModify_valueChanged);
+    connect(ui->vsHModify, &QSlider::valueChanged, this, &ControlPanel::on_vsHModify_valueChanged);
+
     // 料仓
     connect(ui->pbBinStartMotion, SIGNAL(clicked()), this, SLOT(on_pbBinStartMotion_clicked()));
     connect(ui->pbBinStopMotion, SIGNAL(clicked()), this, SLOT(on_pbBinStopMotion_clicked()));
@@ -253,7 +258,6 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
                 {"timeuse", static_cast<float>(ReadNumber("timeuse", 0.0, false))},
                 {"voltage", static_cast<float>(ReadNumber("voltage", 10.0, true))},
                 {"angle_offset", static_cast<int>(ReadNumber("angle_offset", 0.0, false))},
-                {"speed", static_cast<int>(ReadNumber("speed", 0.0, false))},
             },
         };
 
@@ -295,6 +299,19 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     }
     Settings.endGroup();
 
+    // ModifyCoeff 位置修正系数(两个全局滑块, 只有水平/垂直居中会用到)
+    // 与 GatherSequence 一样: 老配置没这段就保留界面当前的 0, 不去清别的值
+    Settings.beginGroup("ModifyCoeff");
+    if (Settings.contains("hcentered"))
+    {
+        ui->vsHModify->setValue(Settings.value("hcentered").toInt());
+    }
+    if (Settings.contains("vcentered"))
+    {
+        ui->hsVModify->setValue(Settings.value("vcentered").toInt());
+    }
+    Settings.endGroup();
+
     // 组合运动 G1/G2: 8 步的动作类型 + 运行时间
     auto LoadGroupMotion = [&Settings](const QString &qstrGroup, GroupMotion *pGroup) {
         // 整个组都不存在 = 老配置, 保持界面默认(每步 0.5s), 不要清零
@@ -307,7 +324,9 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
         {
             const QString qstrKey = qstrGroup + QString("/s%1_").arg(i + 1);
 
-            const int iMotion = Settings.value(qstrKey + "motion", -1).toInt();
+            // 缺键时用 127(不存在的动作类型): SetStep 反查失败会保留原选项。
+            // 不能用 -1 —— 下拉框新增的"停止"项就用 -1 作 itemData, 会把该步当成终止标记
+            const int iMotion = Settings.value(qstrKey + "motion", 127).toInt();
             const double dTime = Settings.value(qstrKey + "time", 0.0).toDouble();
 
             // 动作类型非法时 SetStep 内部保留原选项, 时间照常恢复
@@ -371,7 +390,6 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
             ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
             ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
 
-            ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
             ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
             SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
         }
@@ -443,7 +461,8 @@ void ControlPanel::SendButtonMotion(const ButtonParams &Button, const float fTim
     sParams.fTimeUse = (fTimeUseOverride > 0) ? fTimeUseOverride
                                               : Button.qlstMotionParams.first().value("timeuse").toFloat();
     sParams.s16AngleOffset = Button.qlstMotionParams.first().value("angle_offset").toInt();
-    sParams.u8SpeedCoeff = Button.qlstMotionParams.first().value("speed").toInt();
+    // speed 已取消, 改为 ModifyCoeff: 只有水平/垂直居中用滑块的值, 其他运动发 0
+    sParams.s8ModifyCoeff = GetModifyCoeff(Button.eMotion);
 
     m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
 
@@ -583,6 +602,25 @@ const ControlPanel::ButtonParams *ControlPanel::FindButtonByMotion(const General
 }
 
 
+// 位置修正系数 ModifyCoeff(替代原 speed, 有符号 -50~50):
+// 水平居中 -> vsHModify(竖直滑块, 调水平位置); 垂直居中 -> hsVModify(水平滑块, 调垂直位置)
+// 其他运动(含聚拢/G1/G2 里的普通动作)一律发 0
+int8_t ControlPanel::GetModifyCoeff(const GeneralMotion::MotionParams::MotionIndex eMotion) const
+{
+    switch (eMotion)
+    {
+        case GeneralMotion::MotionParams::MotionIndex::MotionHCentered:
+            return static_cast<int8_t>(ui->vsHModify->value());
+
+        case GeneralMotion::MotionParams::MotionIndex::MotionVCentered:
+            return static_cast<int8_t>(ui->hsVModify->value());
+
+        default:
+            return 0;
+    }
+}
+
+
 // 组合运动 G1 / G2: 按 S1..S8 的顺序逐条下发。
 // 每条指令的电压/频率/角度/速度取该运动类型自己的按钮参数, 只有执行时间取表单里填的时间。
 // 与交替居中序列一样: 所有命令一次性入队, 节拍由下位机完成回帧驱动, 无累计漂移;
@@ -604,7 +642,8 @@ void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QSt
     const QVector<GroupMotion::Step> lstSteps = pGroupMotion->GetSteps();
     if (lstSteps.isEmpty())
     {
-        qWarning() << qstrGroupName << "sequence: no valid step (all times are 0)";
+        qWarning() << qstrGroupName << "sequence: no valid step"
+                   << "(第一步就是\"停止\", 或所有步的时间都是 0)";
         return;
     }
 
@@ -719,7 +758,6 @@ void ControlPanel::SaveSettings(void)
         Settings.setValue("voltage", Button.qlstMotionParams.first().value("voltage"));
 
         Settings.setValue("angle_offset", Button.qlstMotionParams.first().value("angle_offset"));
-        Settings.setValue("speed", Button.qlstMotionParams.first().value("speed"));
 
         Settings.endGroup();
     }
@@ -747,6 +785,12 @@ void ControlPanel::SaveSettings(void)
     Settings.setValue("hmotion_time", ui->dspHMotionTime->value());
     Settings.setValue("vmotion_time", ui->dspVMotionTime->value());
     Settings.setValue("interval_time", ui->dspIntervalTime->value());
+    Settings.endGroup();
+
+    // ModifyCoeff 位置修正系数(水平居中/垂直居中各一个)
+    Settings.beginGroup("ModifyCoeff");
+    Settings.setValue("hcentered", ui->vsHModify->value());
+    Settings.setValue("vcentered", ui->hsVModify->value());
     Settings.endGroup();
 
     // 组合运动 G1/G2: 8 步的动作类型(枚举值) + 运行时间
@@ -865,14 +909,23 @@ void ControlPanel::on_dialAngleRegulation_valueChanged(int value)
 
 void ControlPanel::on_hsldSpeed_valueChanged(int value)
 {
-    qDebug() << value;
-    for (ButtonParams &Button : m_lstMotionButtons)
-    {
-        if (m_qstrCurrentMotionButton == Button.qstrName)
-        {
-            Button.qlstMotionParams.first()["speed"] = value;
-        }
-    }
+    // speed 参数已取消(换成 ModifyCoeff, 且不再按按钮存), 控件也已隐藏。
+    // 保留此槽只是为了不破坏 .ui 的自动连接, 不写任何参数, 免得污染按钮参数表。
+    Q_UNUSED(value);
+}
+
+
+// 水平居中位置调节(竖直滑块 vsHModify): 值在下发时直接读取, 槽里不需要缓存
+void ControlPanel::on_vsHModify_valueChanged(int value)
+{
+    Q_UNUSED(value);
+}
+
+
+// 垂直居中位置调节(水平滑块 hsVModify): 同上
+void ControlPanel::on_hsVModify_valueChanged(int value)
+{
+    Q_UNUSED(value);
 }
 
 
@@ -911,6 +964,10 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
     ui->dspVMotionTime->setValue(pOther->ui->dspVMotionTime->value());
     ui->dspIntervalTime->setValue(pOther->ui->dspIntervalTime->value());
 
+    // 两个 ModifyCoeff 滑块同样要互拷(水平/垂直居中的位置修正)
+    ui->vsHModify->setValue(pOther->ui->vsHModify->value());
+    ui->hsVModify->setValue(pOther->ui->hsVModify->value());
+
     // 组合运动 G1/G2: 8 步的动作类型与运行时间同步拷贝
     if (m_pGroupMotion1 != nullptr && pOther->m_pGroupMotion1 != nullptr)
     {
@@ -928,7 +985,6 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
         const QSignalBlocker BlockV(ui->dspbVoltage);
         const QSignalBlocker BlockF(ui->dspbFrequency);
         const QSignalBlocker BlockT(ui->dspbTime);
-        const QSignalBlocker BlockS(ui->hsldSpeed);
         const QSignalBlocker BlockD(ui->dialAngleRegulation);
 
         for (const ButtonParams &Button : m_lstMotionButtons)
@@ -942,7 +998,6 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
             ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
             ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
 
-            ui->hsldSpeed->setValue(Button.qlstMotionParams.first().value("speed").toInt());
             ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
             SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
         }
@@ -966,7 +1021,8 @@ void ControlPanel::on_pbBinStartMotion_clicked()
     sParams.fFrequency = static_cast<float>(ui->dspbBinFrequency->value());
     sParams.fTimeUse = static_cast<float>(ui->dspbBinTime->value());
     sParams.s16AngleOffset = 0;
-    sParams.u8SpeedCoeff = 0;
+    // 料仓不使用位置修正系数(协议里也没这两个字节)
+    sParams.s8ModifyCoeff = 0;
 
     QByteArray qbtData;
     QByteArray qbtRespond;

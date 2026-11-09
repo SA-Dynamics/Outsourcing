@@ -44,7 +44,7 @@ typedef struct
 	float fMotionFrequency;
 	float fMotionTimeUse;
 	int16_t s16AngleOffset;
-	uint8_t u8SpeedCoeff;
+	int8_t s8ModifyCoeff;
 	// 光源参数
 	uint8_t u8LightIndex;			// 1=A光源, 2=B光源
 	uint8_t u8LightBrightness;		// 0~100

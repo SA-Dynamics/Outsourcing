@@ -72,13 +72,21 @@ private:
 
     // ---- 组合运动 G1 / G2 ----
     // G1Widget / G2Widget 里各嵌入一个 GroupMotion 表单(S1~S8: 动作类型 + 运行时间)。
-    // 点 pbG1/pbG2 时按 S1..S8 的顺序逐条下发: 电压/频率/角度/速度取该运动类型
-    // 自己的按钮参数, 只有执行时间取表单里填的时间。
+    // 点 pbG1/pbG2 时按 S1..S8 的顺序逐条下发: 电压/频率/角度/ModifyCoeff 取该运动类型
+    // 自己的参数, 只有执行时间取表单里填的时间。
     // 与交替序列共用同一套"一次性入队 + 完成帧驱动 + 计数恢复按钮"机制。
     GroupMotion *m_pGroupMotion1 = nullptr;
     GroupMotion *m_pGroupMotion2 = nullptr;
     void StartGroupMotionSequence(GroupMotion *pGroupMotion, const QString &qstrGroupName);
     const ButtonParams *FindButtonByMotion(const GeneralMotion::MotionParams::MotionIndex eMotion) const;
+
+    // ---- ModifyCoeff(位置修正系数) ----
+    // 运动参数里的 speed 已取消, 换成 ModifyCoeff(有符号 int8, -50~50)。
+    // 它不再是"每个按钮各存一份"的参数, 而是两个全局滑块:
+    //   水平居中(MotionHCentered) 取 ui->vsHModify(竖直滑块, 调水平位置)
+    //   垂直居中(MotionVCentered) 取 ui->hsVModify(水平滑块, 调垂直位置)
+    // 其余运动一律发 0。
+    int8_t GetModifyCoeff(const GeneralMotion::MotionParams::MotionIndex eMotion) const;
 
     void SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle);
     int16_t ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue);
@@ -107,7 +115,9 @@ private slots:
     void on_pbG1_clicked();
     void on_pbG2_clicked();
     void on_dialAngleRegulation_valueChanged(int value);
-    void on_hsldSpeed_valueChanged(int value);
+    void on_hsldSpeed_valueChanged(int value);          // 已废弃: speed 参数取消, 控件也隐藏, 保留只为不破坏 .ui 连接
+    void on_hsVModify_valueChanged(int value);          // 垂直居中位置调节(水平滑块)
+    void on_vsHModify_valueChanged(int value);          // 水平居中位置调节(竖直滑块)
     void on_pbBinStartMotion_clicked();
     void on_pbBinStopMotion_clicked();
     void on_pbOpenLightA_clicked();

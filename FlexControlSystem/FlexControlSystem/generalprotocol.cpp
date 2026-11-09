@@ -119,9 +119,12 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     qbtSendCmd.append(static_cast<uint8_t>(sParams.s16AngleOffset >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(sParams.s16AngleOffset & 0xFF));
 
-    u16Temp = static_cast<uint16_t>(sParams.u8SpeedCoeff * 10);
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+    // 数据域第 10~11 byte: ModifyCoeff 位置修正系数(有符号)
+    // 不再有 speed 概念, 这里直接下发整数系数, 不做 *10 缩放;
+    // 负值按补码下发, 下位机以 int8 取低字节, 高字节(符号扩展位)被截断
+    const int16_t s16ModifyCoeff = static_cast<int16_t>(sParams.s8ModifyCoeff);
+    qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff >> 8));
+    qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff & 0xFF));
 
 
     AddCheckSum(qbtSendCmd);

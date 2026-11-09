@@ -26,7 +26,9 @@ namespace GeneralMotion
         float fFrequency;
         float fTimeUse;
         int16_t s16AngleOffset;
-        uint8_t u8SpeedCoeff;
+        // 位置修正系数(协议 "2.运动" 数据域 10~11 byte, 有符号):
+        // 目前只有水平居中/垂直居中用它, 其他运动固定 0
+        int8_t s8ModifyCoeff;
     };
 }
 

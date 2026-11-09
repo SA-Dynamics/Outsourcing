@@ -21,9 +21,14 @@ class GroupMotion : public QWidget
 public:
     struct Step
     {
-        GeneralMotion::MotionParams::MotionIndex eMotion;   // 动作类型
+        GeneralMotion::MotionParams::MotionIndex eMotion;   // 动作类型(-1 表示"停止"标记)
         float fTimeUse;                                     // 该步运行时间(秒)
     };
+
+    // 下拉框"停止"选项的 itemData: 该步及它后面的所有步都不执行
+    // (与 MotionIndex 的 0..9 不冲突; GetAllSteps 存 ini 时原样保存这个值)
+    // 用 enum 而非 static const int, 避免作为实参时触发 ODR-use 需要类外定义
+    enum { MOTION_STOP = -1 };
 
     explicit GroupMotion(QWidget *parent = nullptr);
     ~GroupMotion();
@@ -43,8 +48,10 @@ public:
 
 private:
     void InitComboBoxes(void);
-    void AddMotionItem(QComboBox *pCombo, const QString &qstrText,
-                       const GeneralMotion::MotionParams::MotionIndex eMotion);
+    void AddMotionItem(QComboBox *pCombo, const QString &qstrText, const int iMotion);
+
+    // 第一个"停止"步及之后的时间输入置灰(那些步不会执行)
+    void UpdateTimeEnabled(void);
 
     Ui::GroupMotion *ui;
 };

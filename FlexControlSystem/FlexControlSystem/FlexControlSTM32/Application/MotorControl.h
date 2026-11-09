@@ -28,7 +28,7 @@ typedef struct
 	float fFrequency;
 	float fTimeUse;
 	int16_t s16AngleOffset;
-	uint8_t u8SpeedCoeff;
+	int8_t s8ModifyCoeff;
 }MotorMotionParams;
 
 // weak, 回调由外部实现

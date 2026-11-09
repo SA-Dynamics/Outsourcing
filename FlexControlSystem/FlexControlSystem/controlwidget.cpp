@@ -5,6 +5,28 @@
 #include <QMessageBox>
 #include <QFileDialog>
 
+
+namespace
+{
+// 生成"整页深色底"的样式表, 只作用于 tabPanel 的某一页(按 objectName 限定):
+// 底色铺到该页自身 + 内层 QTabWidget 的 pane/tab, 让深色真正露出来;
+// QLabel/QGroupBox/CheckBox 的文字提亮保证可读;
+// 按钮/输入框等仍由系统样式绘制, 不做改动。
+QString MakePanelStyle(const QString &qstrPageId, const QString &qstrBase,
+                       const QString &qstrBorder, const QString &qstrTab,
+                       const QString &qstrText)
+{
+    return QStringLiteral(
+               "QWidget#%1 { background-color: %2; }"
+               "QWidget#%1 QTabWidget { background-color: %2; }"
+               "QWidget#%1 QTabWidget::pane { background-color: %2; border: 1px solid %3; }"
+               "QWidget#%1 QTabBar::tab { background: %4; color: %5; padding: 4px 12px; }"
+               "QWidget#%1 QTabBar::tab:selected { background: %2; color: #FFFFFF; }"
+               "QWidget#%1 QLabel, QWidget#%1 QGroupBox, QWidget#%1 QCheckBox { color: %5; }")
+            .arg(qstrPageId, qstrBase, qstrBorder, qstrTab, qstrText);
+}
+}
+
 ControlWidget::ControlWidget(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::ControlWidget)
@@ -22,6 +44,27 @@ ControlWidget::ControlWidget(QWidget *parent)
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
     m_pModeWidget->SetReadOnly(true);
+
+    // 控制板数据页: 只用"很淡的蓝"标记按钮可点(与模式数据页的只读深灰底区分)。
+    // 规则用 :enabled 限定 —— 整页禁用(未连接 / 断开)时按钮不匹配, 仍是系统禁用灰,
+    // 这样"能不能按"一眼就能看出来, 不必靠颜色猜。
+    ui->tabControl->setStyleSheet(QStringLiteral(
+        "QWidget#tabControl QPushButton:enabled {"
+        "  background-color: #E7F1FC;"
+        "  border: 1px solid #BCD6EF;"
+        "  border-radius: 3px;"
+        "  padding: 3px 8px;"
+        "}"
+        "QWidget#tabControl QPushButton:enabled:checked {"
+        "  background-color: #C6DEF7;"
+        "  border-color: #96BFE6;"
+        "}"
+        "QWidget#tabControl QPushButton:enabled:hover { background-color: #D9E9FA; }"
+        "QWidget#tabControl QPushButton:enabled:pressed { background-color: #C0DAF4; }"));
+
+    // 模式数据页: 整页深灰底(上一轮需求, 保留)
+    ui->tabMode->setStyleSheet(MakePanelStyle("tabMode", "#33383D", "#4C5155",
+                                              "#3E4347", "#E6E8EA"));
 
     ui->tabControl->setEnabled(false);
 

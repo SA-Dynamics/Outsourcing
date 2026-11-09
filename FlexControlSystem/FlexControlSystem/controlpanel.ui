@@ -520,7 +520,7 @@
        </widget>
        <widget class="QWidget" name="tab_5">
         <attribute name="title">
-         <string>设置</string>
+         <string>高级运动设置</string>
         </attribute>
         <layout class="QGridLayout" name="gridLayout_12">
          <item row="0" column="0">
@@ -566,7 +566,7 @@
                  <widget class="QDoubleSpinBox" name="dspHMotionTime"/>
                 </item>
                 <item row="5" column="0">
-                 <widget class="QSlider" name="horizontalSlider">
+                 <widget class="QSlider" name="hsVModify">
                   <property name="maximumSize">
                    <size>
                     <width>300</width>
@@ -574,13 +574,13 @@
                    </size>
                   </property>
                   <property name="minimum">
-                   <number>1</number>
+                   <number>-50</number>
                   </property>
                   <property name="maximum">
-                   <number>100</number>
+                   <number>50</number>
                   </property>
                   <property name="value">
-                   <number>50</number>
+                   <number>0</number>
                   </property>
                   <property name="orientation">
                    <enum>Qt::Horizontal</enum>
@@ -611,22 +611,6 @@
                   </property>
                  </widget>
                 </item>
-                <item row="4" column="1" rowspan="3">
-                 <widget class="QSlider" name="verticalSlider">
-                  <property name="minimum">
-                   <number>1</number>
-                  </property>
-                  <property name="maximum">
-                   <number>100</number>
-                  </property>
-                  <property name="value">
-                   <number>50</number>
-                  </property>
-                  <property name="orientation">
-                   <enum>Qt::Vertical</enum>
-                  </property>
-                 </widget>
-                </item>
                 <item row="3" column="0">
                  <widget class="QLabel" name="label_8">
                   <property name="text">
@@ -638,6 +622,22 @@
                  <widget class="QLabel" name="label_12">
                   <property name="text">
                    <string>水平居中位置调节</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="4" column="2" rowspan="3">
+                 <widget class="QSlider" name="vsHModify">
+                  <property name="minimum">
+                   <number>-50</number>
+                  </property>
+                  <property name="maximum">
+                   <number>50</number>
+                  </property>
+                  <property name="value">
+                   <number>0</number>
+                  </property>
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
                   </property>
                  </widget>
                 </item>
