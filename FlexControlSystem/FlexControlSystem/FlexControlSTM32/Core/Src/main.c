@@ -98,7 +98,15 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-	FlexControlInit();
+  /*
+   * CubeMX 生成的 MX_GPIO_Init() 会把 RSTN/SPI_CS 初始电平写成低, 而这两个
+   * 引脚都是低有效: RST 低 = W5500 一直处于复位态, CS 低 = 上电即被选中。
+   * 这段在 USER CODE 区, 重新生成代码不会被覆盖。
+   */
+  HAL_GPIO_WritePin(RSTN_GPIO_Port, RSTN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
+
+  FlexControlInit();
   /* USER CODE END 2 */
 
   /* Infinite loop */

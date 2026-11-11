@@ -182,6 +182,18 @@ ControlPanel::~ControlPanel()
 }
 
 
+// 是否有动作正在执行:
+//  1) 序列(交替居中 / 组合运动)未跑完 —— 计数 > 0;
+//  2) 单条运动或料仓运动 —— 对应"停止"按钮处于可用态即说明正在动
+//     (单条运动不进计数, 只能靠按钮状态判断; 空闲时两个停止键都是禁用的)
+bool ControlPanel::IsMotionRunning(void) const
+{
+    return (m_u32MotionSeqRemaining > 0) ||
+           ui->pbSendMotionStop->isEnabled() ||
+           ui->pbBinStopMotion->isEnabled();
+}
+
+
 void ControlPanel::SetReadOnly(const bool bReadOnly)
 {
     m_bReadOnly = bReadOnly;

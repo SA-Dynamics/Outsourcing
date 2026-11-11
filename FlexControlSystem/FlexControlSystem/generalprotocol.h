@@ -32,6 +32,15 @@ namespace GeneralProtocolItems
     constexpr uint8_t u8SW_LIGHT_OFF_CMD = 0x0D;
     constexpr uint8_t u8FW_LIGHT_OFF_RESPOND = 0x0E;
 
+    // 保存IP: 下发 4 字节 IP, 应答 1 字节(1=保存成功, 0=保存失败)
+    constexpr uint8_t u8SW_SAVE_IP_CMD = 0x0F;
+    constexpr uint8_t u8FW_SAVE_IP_RESPOND = 0x10;
+    constexpr uint8_t u8SAVE_IP_SUCCESS = 0x01;
+
+    // 获取IP: 下发 1 字节 0x01, 应答 4 字节 IP
+    constexpr uint8_t u8SW_GET_IP_CMD = 0x11;
+    constexpr uint8_t u8FW_GET_IP_RESPOND = 0x12;
+
     // 光源索引
     constexpr uint8_t u8SW_LIGHT_INDEX_A = 0x01;
     constexpr uint8_t u8SW_LIGHT_INDEX_B = 0x02;
@@ -80,6 +89,10 @@ public:
                          QByteArray &qbtSendCmd, QByteArray &qbtRespond) override;
 
     void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond) override;
+
+    void SaveIpProtocol(const QByteArray &qbtIp, QByteArray &qbtCmd) override;
+
+    void GetIpProtocol(QByteArray &qbtCmd) override;
 
 private:
     GeneralProtocol() = default;

@@ -8,9 +8,9 @@
 // 本机 MAC( locally administered 地址, 首字节 0x02 )
 #define NETWORK_LOCAL_MAC			{0x02, 0x55, 0xAA, 0x55, 0xAA, 0x01}
 // 本机 IP / 子网掩码 / 网关
-#define NETWORK_LOCAL_IP			{192, 168, 1, 100}
+#define NETWORK_LOCAL_IP			{192, 168, 2, 199}
 #define NETWORK_LOCAL_SUBNET		{255, 255, 255, 0}
-#define NETWORK_LOCAL_GATEWAY		{192, 168, 1, 1}
+#define NETWORK_LOCAL_GATEWAY		{192, 168, 2, 1}
 
 // TCP 服务端监听端口
 #define NETWORK_TCP_PORT			5000
@@ -47,5 +47,8 @@ bool NetworkSendData(const uint8_t *pData, const uint8_t u8Len);
 
 // 当前是否有上位机 TCP 连接
 bool NetworkIsConnected(void);
+
+// 获取当前运行的 IP(NetworkInit 实际写入 W5500 的值; 初始化失败时为默认宏值)
+void NetworkGetIp(uint8_t *pIp);
 
 #endif

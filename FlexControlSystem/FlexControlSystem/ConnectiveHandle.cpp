@@ -14,6 +14,11 @@
 #define BIN_STOP_TIMEOUT_MS         1000
 // 光源开关应答超时 ms(要求光源开启后 1s 内必须收到完成反馈)
 #define LIGHT_RESPOND_TIMEOUT_MS    1000
+// 保存IP 应答超时 ms: 下位机要擦写一页 Flash(约 20~40ms), 再叠加网络往返,
+// 3s 足够宽松, 同时不会让界面等太久
+#define SAVE_IP_TIMEOUT_MS          3000
+// 获取IP 应答超时 ms: 纯查询操作, 下位机组帧即回, 2s 足够
+#define GET_IP_TIMEOUT_MS           2000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
 
@@ -33,6 +38,8 @@ ConnectiveHandle::ConnectiveHandle(QObject *parent)
         {SendCmdType::BinStopMotion, {}},
         {SendCmdType::LightOn, {}},
         {SendCmdType::LightOff, {}},
+        {SendCmdType::SaveIp, {}},
+        {SendCmdType::GetIp, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
@@ -256,8 +263,53 @@ void ConnectiveHandle::SendLightOffCommand(const QByteArray &qbtData, const QByt
 }
 
 
-// ============================ 引擎: 发送/应答/超时 ============================
+// 保存IP: 应答有两种(成功/失败), 因此不入"期望应答整帧比对"的常规通道,
+// 由 RecvMessageHandle 按命令码 0x10 识别并取结果字节
+void ConnectiveHandle::SendSaveIpCommand(const QByteArray &qbtData)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
 
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = SAVE_IP_TIMEOUT_MS;
+
+    qDebug() << "send save ip";
+    m_qmapSendBuffer[SendCmdType::SaveIp].append(sSendStruct);
+}
+
+
+// 获取IP: 应答 0x12 数据域为变长 IP, 与保存IP一样按命令码识别, 不走整帧比对
+void ConnectiveHandle::SendGetIpCommand(void)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    QByteArray qbtCmd;
+    m_pProtocol->GetIpProtocol(qbtCmd);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtCmd;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = GET_IP_TIMEOUT_MS;
+
+    qDebug() << "send get ip";
+    m_qmapSendBuffer[SendCmdType::GetIp].append(sSendStruct);
+}
+
+
+// ============================ 引擎: 发送/应答/超时 ============================
 void ConnectiveHandle::OnEngineTick(void)
 {
     if (!m_bChannelOpen)
@@ -464,6 +516,61 @@ void ConnectiveHandle::OnEngineTick(void)
             emit sigLightRespondUnnormal();
         }
     }
+
+    // ---- 保存IP(应答 0x10, 结果由接收匹配写入 m_bSaveIpSuccess) ----
+    QVector<SendCmdStruct> &sSaveIp = m_qmapSendBuffer[SendCmdType::SaveIp];
+    if (!sSaveIp.isEmpty())
+    {
+        SendCmdStruct &sItem = sSaveIp.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sSaveIp.removeFirst();
+            emit sigSaveIpResult(m_bSaveIpSuccess ? 1 : 0);
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 下位机未应答: 可能是连接已断(保存成功后它会重启), 或指令没送达
+            qDebug() << "save ip respond timeout";
+            sSaveIp.clear();
+            emit sigSaveIpResult(-1);
+        }
+    }
+
+    // ---- 获取IP(应答 0x12, IP 由接收匹配写入 m_qstrGetIpValue) ----
+    QVector<SendCmdStruct> &sGetIp = m_qmapSendBuffer[SendCmdType::GetIp];
+    if (!sGetIp.isEmpty())
+    {
+        SendCmdStruct &sItem = sGetIp.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sGetIp.removeFirst();
+            emit sigGetIpResult(m_qstrGetIpValue);
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            qDebug() << "get ip respond timeout";
+            sGetIp.clear();
+            emit sigGetIpResult(QString());
+        }
+    }
 }
 
 
@@ -540,6 +647,28 @@ void ConnectiveHandle::RecvMessageHandle(void)
              qbtFrame == m_qmapSendBuffer[SendCmdType::LightOff].first().qbtRespond)
     {
         m_qmapSendBuffer[SendCmdType::LightOff].first().bRespond = true;
+    }
+    // 保存IP: 应答帧有两种(1=成功/0=失败), 无法整帧比对, 按命令码 + 数据域识别
+    else if (!m_qmapSendBuffer[SendCmdType::SaveIp].isEmpty() &&
+             qbtFrame.size() >= 5 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_SAVE_IP_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == 1)
+    {
+        m_bSaveIpSuccess = (static_cast<uint8_t>(qbtFrame.at(4)) == GeneralProtocolItems::u8SAVE_IP_SUCCESS);
+        m_qmapSendBuffer[SendCmdType::SaveIp].first().bRespond = true;
+    }
+    // 获取IP: 应答 0x12 数据域 4 字节 IP, 按命令码 + 长度识别
+    else if (!m_qmapSendBuffer[SendCmdType::GetIp].isEmpty() &&
+             qbtFrame.size() >= 8 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_GET_IP_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == 4)
+    {
+        m_qstrGetIpValue = QStringLiteral("%1.%2.%3.%4")
+                .arg(static_cast<uint8_t>(qbtFrame.at(4)))
+                .arg(static_cast<uint8_t>(qbtFrame.at(5)))
+                .arg(static_cast<uint8_t>(qbtFrame.at(6)))
+                .arg(static_cast<uint8_t>(qbtFrame.at(7)));
+        m_qmapSendBuffer[SendCmdType::GetIp].first().bRespond = true;
     }
 
     qDebug() << "remove recv info" << qbtFrame;

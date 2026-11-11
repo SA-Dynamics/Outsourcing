@@ -61,7 +61,7 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin : INTN_Pin */
   GPIO_InitStruct.Pin = INTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(INTN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RSTN_Pin EnableBin_Pin SPI_CS_Pin */

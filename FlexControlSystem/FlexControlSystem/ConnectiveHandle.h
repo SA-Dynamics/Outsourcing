@@ -38,6 +38,14 @@ public slots:
     void SendLightOnCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
     void SendLightOffCommand(const QByteArray &qbtData, const QByteArray &qbtRespond);
 
+    // 保存IP: 帧内已含目标 IP, 应答由引擎按命令码 0x10 单独匹配
+    // 结果通过 sigSaveIpResult 回传(1=成功, 0=失败, -1=超时)
+    void SendSaveIpCommand(const QByteArray &qbtData);
+
+    // 获取IP: 无参数, 应答由引擎按命令码 0x12 单独匹配
+    // 结果通过 sigGetIpResult 回传(成功为 "x.x.x.x", 空串=超时)
+    void SendGetIpCommand(void);
+
     // 线程收尾: 在对象所属线程内停止全部定时器并关闭底层通道
     // 由 QThread::finished 直接触发(同线程直连执行), 避免跨线程 killTimer 警告
     void Shutdown(void);
@@ -50,6 +58,13 @@ signals:
     void sigBinMotionRespondUnnormal();
     void sigLightRespondUnnormal();
     void sigMotionTerminate();
+
+    // 保存IP结果: 1=下位机写入成功, 0=下位机写入失败, -1=应答超时
+    // 下位机保存成功后会延时重启, 所以收到 0/1 之后连接随时可能断开
+    void sigSaveIpResult(const int &iResult);
+
+    // 获取IP结果: 成功为点分十进制字符串, 空串=应答超时
+    void sigGetIpResult(const QString &qstrIp);
 
 protected:
     // 打开连接(串口/TCP), 成功返回 true, 失败返回 false
@@ -91,7 +106,7 @@ private:
     };
 
     enum class SendCmdType { HeartBeat, MotionCmd, StopMotion,
-                             BinMotion, BinStopMotion, LightOn, LightOff };
+                             BinMotion, BinStopMotion, LightOn, LightOff, SaveIp, GetIp };
 
     struct SendCmdStruct
     {
@@ -114,6 +129,14 @@ private:
 
     bool m_bChannelOpen;
     ProtocolHandle *m_pProtocol;
+
+    // 保存IP 应答里解析出来的结果字节(1=成功, 0=失败), 由接收匹配写入、
+    // 引擎在收到应答后随 sigSaveIpResult 一起发出
+    bool m_bSaveIpSuccess = false;
+
+    // 获取IP 应答里解析出来的 IP 字符串, 由接收匹配写入、
+    // 引擎在收到应答后随 sigGetIpResult 一起发出
+    QString m_qstrGetIpValue;
 };
 
 #endif // CONNECTIVEHANDLE_H

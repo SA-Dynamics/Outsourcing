@@ -1,5 +1,6 @@
 #include "SerialHandle.h"
 #include "usart.h"
+#include "Network.h"
 #include <string.h>
 #include "Timer.h"
 
@@ -146,6 +147,17 @@ static void ParseLightData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 
 
 
+// 解析保存IP指令: 数据域 = 4 字节 IP(按顺序 IP0~IP3)
+static void ParseIpData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		pInfoWrite->u8Ip[i] = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2 + i) % UART_RECV_DATA_BUFFER_SIZE];
+	}
+}
+
+
+
 void ParseUartData(SerialDataType *pSerial)
 {
 	SerialInfo sInfo;
@@ -191,6 +203,21 @@ void ParseUartData(SerialDataType *pSerial)
 			{
 				sInfo.u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
 			}
+			break;
+
+		// 保存IP: 数据域固定 4 字节; 长度不符直接丢弃, 避免按错位的数据写 Flash
+		case 0x0F:
+			if (pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE] != 4)
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_IP;
+			ParseIpData(&sInfo, pSerial);
+			break;
+
+		// 获取IP: 数据域 1 字节(固定 0x01), 本机无需使用其内容
+		case 0x11:
+			sInfo.eInfo = INFO_GET_IP;
 			break;
 
 		default:
@@ -349,6 +376,14 @@ static bool GetSendByteArray(uint8_t *pData, uint8_t *pLen)
 // 将发送数据存放在buffer中
 static void SaveSendByteArray(const uint8_t *pData, const uint8_t u8Len)
 {
+	// 双路输出: TCP 已连接时同一帧应答同时发往网络与串口
+	// (心跳/完成反馈帧都很小, NETWORK_SEND_QUEUE_SIZE=8 足够; 网络层
+	//  发送缓冲不足时 NetworkSendData 返回 false, 帧不丢失只延后)
+	if (NetworkIsConnected())
+	{
+		(void)NetworkSendData(pData, u8Len);
+	}
+
 	if (g_sSerial1Data.sSend.u16BufferLen < UART_SEND_BUFFER_SIZE)
 	{
 		memcpy(g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16WriteIndex].u8SendData, pData, u8Len);
@@ -502,6 +537,16 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 			SendLightOff();
 			break;
 
+		case RESPOND_SAVE_IP:
+			// 保存IP反馈: 0x10, 数据域 1 字节(1=保存成功, 0=保存失败)
+			SaveRespondFrame(0x10, (const uint8_t *)pParams, 1);
+			break;
+
+		case RESPOND_GET_IP:
+			// 获取IP反馈: 0x12, 数据域 4 字节 IP
+			SaveRespondFrame(0x12, (const uint8_t *)pParams, 4);
+			break;
+
 		default:
 			break;
 	}
@@ -567,4 +612,112 @@ void SerialDataHandle(void)
 {
 	UartRecvBufferHandler(&g_sSerial1Data);
 	SendSerialByteArray(&g_sSerial1Data);
+}
+
+
+// ============================ 网络帧解析 ============================
+// 说明: 串口帧在环形缓冲里可能跨末尾回卷, 必须按下标取模读取; 网络帧来自
+// 队列的扁平缓冲, 天然连续。两者数据源不同, 因此运动/光源的解析各写一份
+// 扁平版本, 不复用串口版本, 避免改动已验证的串口解析路径。
+// 帧布局(不含帧头帧尾): pFrame[0]=cmd, [1]=len, [2..]=data, 校验已在
+// Network.c 提取帧时验过, 这里不再重复校验。
+
+// 解析网络运动指令: data = 索引1B + 电压2B + 频率2B + 时间2B + 角度偏移2B + 修正系数2B
+static void ParseNetworkMotionData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
+{
+	pInfoWrite->u8MotionIndex = pFrame[2];
+
+	pInfoWrite->fMotionVoltage = (float)(((uint16_t)pFrame[3] << 8) | pFrame[4]) / 10.0f;
+	pInfoWrite->fMotionFrequency = (float)(((uint16_t)pFrame[5] << 8) | pFrame[6]) / 10.0f;
+	pInfoWrite->fMotionTimeUse = (float)(((uint16_t)pFrame[7] << 8) | pFrame[8]) / 10.0f;
+
+	pInfoWrite->s16AngleOffset = (int16_t)(((uint16_t)pFrame[9] << 8) | pFrame[10]);
+
+	// 与串口解析一致: 2 字节大端, 取低字节语义(协议范围 -50~50)
+	pInfoWrite->s8ModifyCoeff = (int8_t)(int16_t)(((uint16_t)pFrame[11] << 8) | pFrame[12]);
+}
+
+// 解析网络光源开启指令: data = 索引1B + 亮度1B + 保持时间2B(单位100ms)
+static void ParseNetworkLightData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
+{
+	pInfoWrite->u8LightIndex = pFrame[2];
+	pInfoWrite->u8LightBrightness = pFrame[3];
+	pInfoWrite->u16LightKeepTime = (uint16_t)(((uint16_t)pFrame[4] << 8) | pFrame[5]);
+}
+
+
+void SerialHandleNetworkFrame(const uint8_t *pFrame, const uint8_t u8Len)
+{
+	SerialInfo sInfo;
+
+	// 最短合法帧: cmd + len + 校验2B = 4B
+	if (pFrame == NULL || u8Len < 4)
+	{
+		return;
+	}
+
+	memset(&sInfo, 0, sizeof(sInfo));
+
+	switch (pFrame[0])
+	{
+		case 0x01:
+			sInfo.eInfo = INFO_HEART;
+			break;
+
+		case 0x03:
+			sInfo.eInfo = INFO_MOTION;
+			ParseNetworkMotionData(&sInfo, pFrame);
+			break;
+
+		case 0x05:
+			sInfo.eInfo = INFO_STOP_MOTION;
+			break;
+
+		// 料仓指令数据域布局与振动盘一致, 解析复用
+		case 0x07:
+			sInfo.eInfo = INFO_BIN_MOTION;
+			ParseNetworkMotionData(&sInfo, pFrame);
+			break;
+
+		case 0x09:
+			sInfo.eInfo = INFO_STOP_BIN_MOTION;
+			break;
+
+		case 0x0B:
+			sInfo.eInfo = INFO_LIGHT_ON;
+			ParseNetworkLightData(&sInfo, pFrame);
+			break;
+
+		case 0x0D:
+			sInfo.eInfo = INFO_LIGHT_OFF;
+			// 协议 N=0 为关闭全部; 兼容扩展: N>=1 时数据首字节为光源索引
+			if (pFrame[1] >= 1)
+			{
+				sInfo.u8LightIndex = pFrame[2];
+			}
+			break;
+
+		// 保存IP: 数据域固定 4 字节, 长度不符直接丢弃
+		case 0x0F:
+			if (pFrame[1] != 4)
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_IP;
+			sInfo.u8Ip[0] = pFrame[2];
+			sInfo.u8Ip[1] = pFrame[3];
+			sInfo.u8Ip[2] = pFrame[4];
+			sInfo.u8Ip[3] = pFrame[5];
+			break;
+
+		// 获取IP: 数据域 1 字节(固定 0x01), 本机无需使用其内容
+		case 0x11:
+			sInfo.eInfo = INFO_GET_IP;
+			break;
+
+		default:
+			return;
+	}
+
+	SendRecvParseInfoToBuffer(&sInfo);
 }

@@ -1,456 +1,990 @@
+/**
+ ******************************************************************************
+ * @file    W5500.c
+ * @brief   W5500 硬件 TCP/IP 控制器驱动实现
+ * @author  user
+ * @date    2026-11-11
+ *
+ * @note    本文件不出现任何 SPI 外设名与引脚号:
+ *          SPI 句柄、CS、RST 全部由 W5500_Config_t 在 W5500_Init 时注入,
+ *          底层收发统一走 SPI_MasterFullDuplexDMA 的 SpiDev* 接口。
+ *
+ * @note    W5500 的 SPI 帧格式:
+ *            [地址高][地址低][控制字节][数据 ...]
+ *          控制字节 = BSB(块选择) | RWB(读写) | OM(长度模式)
+ *          一次片选有效期间的所有字节属于同一帧,地址在帧内自动递增。
+ ******************************************************************************
+ */
+
 #include "W5500.h"
-#include "spi.h"
-#include "Timer.h"
 
-// INTN --- GPIOA4  (外部中断, 下降沿)
-// RSTN --- GPIOA5  (推挽输出, 低有效)
-// CS   --- GPIOA15 (推挽输出, 软件控制)
-// SPI  --- SPI1, PB3=SCK PB4=MISO PB5=MOSI (重映射), 时钟 72/4 = 18MHz
+/*----------------------------------------------------------------------------
+ * 可调参数
+ *----------------------------------------------------------------------------*/
+#define W5500_CONNECT_TIMEOUT_MS    (3000u)     /**< TCP 连接建立超时              */
+#define W5500_SEND_OK_TIMEOUT_MS    (1000u)     /**< 等 SEND_OK 中断的超时         */
+#define W5500_RESET_DONE_TIMEOUT_MS (100u)      /**< 等软复位完成(MR.RST 自清)   */
 
-// 引脚控制宏
-#define W5500_CS_LOW()			HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET)
-#define W5500_CS_HIGH()			HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET)
-#define W5500_RST_LOW()			HAL_GPIO_WritePin(RSTN_GPIO_Port, RSTN_Pin, GPIO_PIN_RESET)
-#define W5500_RST_HIGH()		HAL_GPIO_WritePin(RSTN_GPIO_Port, RSTN_Pin, GPIO_PIN_SET)
+/*----------------------------------------------------------------------------
+ * 私有变量
+ *----------------------------------------------------------------------------*/
+static SpiDevice_t g_sSpiDev;                   /**< SPI 设备描述(运行期绑定)     */
+static uint8_t     g_u8Inited = 0u;             /**< 初始化完成标志                */
+static GPIO_TypeDef *g_pIntPort = NULL;         /**< INT 引脚端口,未接则为 NULL    */
+static uint16_t    g_u16IntPin = 0u;            /**< INT 引脚                      */
+static volatile uint8_t g_u8IntFlag = 0u;       /**< EXTI 置位的中断标志            */
+static uint8_t     g_au8Event[W5500_SOCKET_COUNT]; /**< 各 Socket 累计事件位      */
 
-// 通用寄存器地址
-#define W5500_REG_MR			0x0000
-#define W5500_REG_GAR			0x0001		// 网关 4 字节
-#define W5500_REG_SUBR			0x0005		// 子网掩码 4 字节
-#define W5500_REG_SHAR			0x0009		// MAC 6 字节
-#define W5500_REG_SIPR			0x000F		// 本机 IP 4 字节
-#define W5500_REG_IR			0x0015		// 通用中断标志
-#define W5500_REG_IMR			0x0016
-#define W5500_REG_SIR			0x0017		// socket 中断状态
-#define W5500_REG_SIMR			0x0018
-#define W5500_REG_PHYCFGR		0x002E		// PHY 配置, bit0 = 链路状态
-#define W5500_REG_VERSIONR		0x0039		// 版本号, 固定为 0x04
+/* 配置留空时使用的默认网络参数 */
+static const uint8_t g_au8DefaultMac[6]  = {0x00u, 0x08u, 0xDCu, 0x12u, 0x34u, 0x56u};
+static const uint8_t g_au8DefaultIp[4]   = {192u, 168u, 2u, 199u};
+static const uint8_t g_au8DefaultGw[4]   = {192u, 168u, 2u, 1u};
+static const uint8_t g_au8DefaultMask[4] = {255u, 255u, 255u, 0u};
 
-// socket 寄存器(地址为单个 socket 内的偏移)
-#define W5500_SREG_MR			0x0000
-#define W5500_SREG_CR			0x0001
-#define W5500_SREG_IR			0x0002
-#define W5500_SREG_SR			0x0003
-#define W5500_SREG_PORT			0x0004		// 2 字节
-#define W5500_SREG_TXBUF_SIZE	0x001F		// 单位 KB
-#define W5500_SREG_RXBUF_SIZE	0x001E		// 单位 KB
-#define W5500_SREG_TX_FSR		0x0020		// 发送空闲缓冲区大小 2 字节
-#define W5500_SREG_TX_WR		0x0024		// 发送写指针 2 字节
-#define W5500_SREG_RX_RSR		0x0026		// 接收已用缓冲区大小 2 字节
-#define W5500_SREG_RX_RD		0x0028		// 接收读指针 2 字节
-#define W5500_SREG_IMR			0x002C
+/*----------------------------------------------------------------------------
+ * 私有函数原型
+ *----------------------------------------------------------------------------*/
+static int32_t W5500_FrameWrite(uint8_t u8Block, uint16_t u16Addr,
+                                const uint8_t *pData, uint16_t u16Len);
+static int32_t W5500_FrameRead(uint8_t u8Block, uint16_t u16Addr,
+                               uint8_t *pBuf, uint16_t u16Len);
+static int32_t W5500_WaitCommandDone(uint8_t u8Sock, uint32_t u32TimeoutMs);
+static int32_t W5500_WaitSocketStatus(uint8_t u8Sock, uint8_t u8Status,
+                                      uint32_t u32TimeoutMs);
+static int32_t W5500_WaitTxFree(uint8_t u8Sock, uint16_t u16Len,
+                                uint32_t u32TimeoutMs);
+static void    W5500_ReadSocketBuf(uint8_t u8Sock, uint16_t u16Offset,
+                                   uint8_t *pBuf, uint16_t u16Len);
+static void    W5500_WriteSocketBuf(uint8_t u8Sock, uint16_t u16Offset,
+                                    const uint8_t *pBuf, uint16_t u16Len);
+static uint8_t W5500_IsAllZero(const uint8_t *pData, uint8_t u8Len);
 
-// socket 命令
-#define W5500_CR_OPEN			0x01
-#define W5500_CR_LISTEN			0x02
-#define W5500_CR_CLOSE			0x10
-#define W5500_CR_SEND			0x20
-#define W5500_CR_RECV			0x40
+/*----------------------------------------------------------------------------
+ * 帧级收发:一帧 = 片选有效 + 3 字节命令头 + 数据 + 片选释放
+ *----------------------------------------------------------------------------*/
 
-// BSB 段选择: 通用寄存器=0x00, socket n 的寄存器/发送缓冲/接收缓冲 = (1/2/3) + 4*n
-// 注意: 控制字节 = BSB[4:0]<<3 | RWB(bit2) | OM[1:0], BSB 必须左移 3 位
-#define W5500_BSB_COMMON		0x00		// 通用寄存器段
-#define W5500_BSB_REG(socket)	(uint8_t)(0x01 + 4 * (socket))
-#define W5500_BSB_TX(socket)	(uint8_t)(0x02 + 4 * (socket))
-#define W5500_BSB_RX(socket)	(uint8_t)(0x03 + 4 * (socket))
-#define W5500_CTRL_WRITE		0x04		// 控制字节 bit2: 1=写 0=读
-
-// socket0 缓冲区大小(KB), 其余 socket 各 1KB, 总和不超过 16KB
-#define W5500_SOCKET0_BUF_KB	4
-
-// 版本号与复位时序参数
-#define W5500_CHIP_VERSION		0x04
-#define W5500_RST_HOLD_US		600			// 复位低电平保持时间 > 500us
-#define W5500_RST_RECOVER_MS	60			// 复位后等待 PLL 稳定时间
-#define W5500_WAIT_TIMEOUT_US	100000		// 寄存器等待超时 100ms
-
-
-// 中断标志, 由 INTN 中断置位, 主循环消费
-static volatile bool g_bW5500IrqFlag = false;
-
-// 等待超时用的计时器
-static uint32_t g_u32W5500RstTimer = 0;
-static uint32_t g_u32W5500WaitTimer = 0;
-
-// 各 socket 发送/接收缓冲区掩码(大小 - 1), 用于环形缓冲地址回卷
-static uint16_t g_u16TxMask[W5500_SOCKET_NUM] = {0};
-static uint16_t g_u16RxMask[W5500_SOCKET_NUM] = {0};
-
-// 前置声明
-static bool WaitSocketStatus(const uint8_t u8Socket, const uint8_t u8Status);
-uint8_t W5500GetSocketStatus(const uint8_t u8Socket);
-uint16_t W5500SocketGetRecvSize(const uint8_t u8Socket);
-
-
-// ============================ SPI 底层 ============================
-
-// SPI 收发一个字节
-static uint8_t SpiTransferByte(const uint8_t u8Data)
+/**
+ * @brief  写帧
+ * @param  u8Block 块选择码(BSB),如 W5500_BSB_COMMON / W5500_BSB_SOCK_REG(n)
+ * @param  u16Addr 块内偏移
+ * @param  pData   数据,可为 NULL(仅发命令头)
+ * @param  u16Len  数据字节数
+ * @return W5500_OK / W5500_ERR_SPI
+ */
+static int32_t W5500_FrameWrite(uint8_t u8Block, uint16_t u16Addr,
+                                const uint8_t *pData, uint16_t u16Len)
 {
-	uint8_t u8Recv = 0;
-	HAL_SPI_TransmitReceive(&hspi1, (uint8_t *)&u8Data, &u8Recv, 1, 10);
-	return u8Recv;
+    uint8_t aHeader[3];
+    int32_t s32Result;
+
+    aHeader[0] = (uint8_t)(u16Addr >> 8);
+    aHeader[1] = (uint8_t)(u16Addr & 0xFFu);
+    aHeader[2] = (uint8_t)(u8Block | W5500_RWB_WRITE | W5500_OM_VDM);
+
+    s32Result = SpiDevBegin(&g_sSpiDev);
+    if (s32Result != SPI_DEV_OK)
+    {
+        return W5500_ERR_SPI;
+    }
+
+    s32Result = SpiDevWrite(&g_sSpiDev, aHeader, 3u, 0u);
+    if ((s32Result == SPI_DEV_OK) && (pData != NULL) && (u16Len > 0u))
+    {
+        s32Result = SpiDevWrite(&g_sSpiDev, pData, u16Len, 0u);
+    }
+
+    if (SpiDevEnd(&g_sSpiDev) != SPI_DEV_OK)
+    {
+        s32Result = SPI_DEV_ERR_TIMEOUT;
+    }
+
+    return (s32Result == SPI_DEV_OK) ? W5500_OK : W5500_ERR_SPI;
 }
 
-// 变长读写: W5500 帧格式 = 16 位地址 + 控制字节(BSB<<3 | RWB | OM=00) + 连续数据
-static void W5500ReadBuf(const uint8_t u8Bsb, const uint16_t u16Addr, uint8_t *pData, const uint16_t u16Len)
+/**
+ * @brief  读帧
+ * @param  u8Block 块选择码(BSB)
+ * @param  u16Addr 块内偏移
+ * @param  pBuf    接收缓冲区
+ * @param  u16Len  读取字节数
+ * @return W5500_OK / W5500_ERR_SPI
+ * @note   命令头发出后 W5500 立即开始输出数据,因此不需要额外的哑元字节;
+ *         读数据段由 SpiDevRead 通过 DMA 完成,CPU 只在等待结束。
+ */
+static int32_t W5500_FrameRead(uint8_t u8Block, uint16_t u16Addr,
+                               uint8_t *pBuf, uint16_t u16Len)
 {
-	const uint8_t u8Ctrl = (uint8_t)(u8Bsb << 3);		// RWB=0 读, OM=00 变长模式
+    uint8_t aHeader[3];
+    int32_t s32Result;
 
-	W5500_CS_LOW();
-	SpiTransferByte((uint8_t)(u16Addr >> 8));
-	SpiTransferByte((uint8_t)(u16Addr));
-	SpiTransferByte(u8Ctrl);
-	for (uint16_t i = 0; i < u16Len; i++)
-	{
-		pData[i] = SpiTransferByte(0x00);
-	}
-	W5500_CS_HIGH();
+    aHeader[0] = (uint8_t)(u16Addr >> 8);
+    aHeader[1] = (uint8_t)(u16Addr & 0xFFu);
+    aHeader[2] = (uint8_t)(u8Block | W5500_RWB_READ | W5500_OM_VDM);
+
+    s32Result = SpiDevBegin(&g_sSpiDev);
+    if (s32Result != SPI_DEV_OK)
+    {
+        return W5500_ERR_SPI;
+    }
+
+    s32Result = SpiDevWrite(&g_sSpiDev, aHeader, 3u, 0u);
+    if ((s32Result == SPI_DEV_OK) && (pBuf != NULL) && (u16Len > 0u))
+    {
+        s32Result = SpiDevRead(&g_sSpiDev, pBuf, u16Len, 0u);
+    }
+
+    if (SpiDevEnd(&g_sSpiDev) != SPI_DEV_OK)
+    {
+        s32Result = SPI_DEV_ERR_TIMEOUT;
+    }
+
+    return (s32Result == SPI_DEV_OK) ? W5500_OK : W5500_ERR_SPI;
 }
 
-static void W5500WriteBuf(const uint8_t u8Bsb, const uint16_t u16Addr, const uint8_t *pData, const uint16_t u16Len)
-{
-	const uint8_t u8Ctrl = (uint8_t)((u8Bsb << 3) | W5500_CTRL_WRITE);
+/*----------------------------------------------------------------------------
+ * 寄存器访问
+ *----------------------------------------------------------------------------*/
 
-	W5500_CS_LOW();
-	SpiTransferByte((uint8_t)(u16Addr >> 8));
-	SpiTransferByte((uint8_t)(u16Addr));
-	SpiTransferByte(u8Ctrl);
-	for (uint16_t i = 0; i < u16Len; i++)
-	{
-		SpiTransferByte(pData[i]);
-	}
-	W5500_CS_HIGH();
+uint8_t W5500_Read8(uint8_t u8Block, uint16_t u16Addr)
+{
+    uint8_t u8Value = 0u;
+
+    if (W5500_FrameRead(u8Block, u16Addr, &u8Value, 1u) != W5500_OK)
+    {
+        return 0u;
+    }
+    return u8Value;
 }
 
-// 单字节寄存器读写
-static uint8_t W5500ReadReg(const uint8_t u8Bsb, const uint16_t u16Addr)
+void W5500_Write8(uint8_t u8Block, uint16_t u16Addr, uint8_t u8Data)
 {
-	uint8_t u8Data = 0;
-	W5500ReadBuf(u8Bsb, u16Addr, &u8Data, 1);
-	return u8Data;
+    (void)W5500_FrameWrite(u8Block, u16Addr, &u8Data, 1u);
 }
 
-static void W5500WriteReg(const uint8_t u8Bsb, const uint16_t u16Addr, const uint8_t u8Data)
+/**
+ * @brief  读 16 位寄存器(大端:高字节在低地址)
+ * @note   W5500 的 16 位寄存器支持变长模式连续读两个字节,无需切 FDM2。
+ */
+uint16_t W5500_Read16(uint8_t u8Block, uint16_t u16Addr)
 {
-	W5500WriteBuf(u8Bsb, u16Addr, &u8Data, 1);
+    uint8_t aBuf[2] = {0u, 0u};
+
+    if (W5500_FrameRead(u8Block, u16Addr, aBuf, 2u) != W5500_OK)
+    {
+        return 0u;
+    }
+    return (uint16_t)(((uint16_t)aBuf[0] << 8) | (uint16_t)aBuf[1]);
 }
 
-// 16 位寄存器读取(高位在前)
-static uint16_t W5500ReadReg16(const uint8_t u8Bsb, const uint16_t u16Addr)
+void W5500_Write16(uint8_t u8Block, uint16_t u16Addr, uint16_t u16Data)
 {
-	uint8_t u8Data[2] = {0};
-	W5500ReadBuf(u8Bsb, u16Addr, u8Data, 2);
-	return (uint16_t)((uint16_t)u8Data[0] << 8) | u8Data[1];
+    uint8_t aBuf[2];
+
+    aBuf[0] = (uint8_t)(u16Data >> 8);
+    aBuf[1] = (uint8_t)(u16Data & 0xFFu);
+    (void)W5500_FrameWrite(u8Block, u16Addr, aBuf, 2u);
 }
 
-static void W5500WriteReg16(const uint8_t u8Bsb, const uint16_t u16Addr, const uint16_t u16Data)
+void W5500_ReadBuf(uint8_t u8Block, uint16_t u16Addr, uint8_t *pBuf, uint16_t u16Len)
 {
-	uint8_t u8Buf[2] = {(uint8_t)(u16Data >> 8), (uint8_t)(u16Data)};
-	W5500WriteBuf(u8Bsb, u16Addr, u8Buf, 2);
+    if ((pBuf == NULL) || (u16Len == 0u))
+    {
+        return;
+    }
+    (void)W5500_FrameRead(u8Block, u16Addr, pBuf, u16Len);
 }
 
-// 读 socket n 的变长缓冲, 考虑环形地址回卷
-static void W5500ReadSocketBuf(const uint8_t u8Socket, const uint16_t u16Ptr, uint8_t *pData, uint16_t u16Len)
+void W5500_WriteBuf(uint8_t u8Block, uint16_t u16Addr,
+                    const uint8_t *pBuf, uint16_t u16Len)
 {
-	const uint16_t u16Mask = g_u16RxMask[u8Socket];
-	uint16_t u16Offset = u16Ptr & u16Mask;
-	uint16_t u16BlockSize = u16Mask + 1;
-
-	if (u16Offset + u16Len > u16BlockSize)
-	{
-		uint16_t u16First = u16BlockSize - u16Offset;
-		W5500ReadBuf(W5500_BSB_RX(u8Socket), u16Offset, pData, u16First);
-		W5500ReadBuf(W5500_BSB_RX(u8Socket), 0, pData + u16First, u16Len - u16First);
-	}
-	else
-	{
-		W5500ReadBuf(W5500_BSB_RX(u8Socket), u16Offset, pData, u16Len);
-	}
+    if ((pBuf == NULL) || (u16Len == 0u))
+    {
+        return;
+    }
+    (void)W5500_FrameWrite(u8Block, u16Addr, pBuf, u16Len);
 }
 
-// 写 socket n 的发送缓冲, 考虑环形地址回卷
-static void W5500WriteSocketBuf(const uint8_t u8Socket, const uint16_t u16Ptr, const uint8_t *pData, uint16_t u16Len)
-{
-	const uint16_t u16Mask = g_u16TxMask[u8Socket];
-	uint16_t u16Offset = u16Ptr & u16Mask;
-	uint16_t u16BlockSize = u16Mask + 1;
+/*----------------------------------------------------------------------------
+ * 状态等待
+ *----------------------------------------------------------------------------*/
 
-	if (u16Offset + u16Len > u16BlockSize)
-	{
-		uint16_t u16First = u16BlockSize - u16Offset;
-		W5500WriteBuf(W5500_BSB_TX(u8Socket), u16Offset, pData, u16First);
-		W5500WriteBuf(W5500_BSB_TX(u8Socket), 0, pData + u16First, u16Len - u16First);
-	}
-	else
-	{
-		W5500WriteBuf(W5500_BSB_TX(u8Socket), u16Offset, pData, u16Len);
-	}
+/**
+ * @brief  等 Socket 命令执行完毕(Sn_CR 由硬件自动清零)
+ */
+static int32_t W5500_WaitCommandDone(uint8_t u8Sock, uint32_t u32TimeoutMs)
+{
+    uint32_t u32TimeStart = HAL_GetTick();
+    uint8_t  u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    while (W5500_Read8(u8Block, W5500_SN_CR) != 0u)
+    {
+        if ((HAL_GetTick() - u32TimeStart) > u32TimeoutMs)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+    return W5500_OK;
 }
 
-
-// ============================ 调试辅助 ============================
-
-// SPI 回环测试: 断开 W5500 的 MISO, 用杜邦线把 PB4(MISO) 直连 PB5(MOSI) 后调用
-// MCU 发 0xA5 直接回读, 等于 0xA5 说明 MCU 侧 SPI(含重映射) 完全正常,
-// 0xFF 问题出在 MCU 与 W5500 之间的接线/供电/芯片; 不等则查 MCU 侧配置
-bool W5500SpiLoopbackTest(void)
+/**
+ * @brief  等 Socket 状态变为指定值
+ */
+static int32_t W5500_WaitSocketStatus(uint8_t u8Sock, uint8_t u8Status,
+                                      uint32_t u32TimeoutMs)
 {
-	uint8_t u8Send = 0xA5;
-	uint8_t u8Recv = 0;
+    uint32_t u32TimeStart = HAL_GetTick();
 
-	// CS 保持高, 不打扰 W5500(其 MISO 此时为高阻)
-	W5500_CS_HIGH();
-	HAL_SPI_TransmitReceive(&hspi1, &u8Send, &u8Recv, 1, 10);
-
-	return (u8Recv == 0xA5);
+    while (W5500_SocketStatus(u8Sock) != u8Status)
+    {
+        if ((HAL_GetTick() - u32TimeStart) > u32TimeoutMs)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+    return W5500_OK;
 }
 
-
-// SPI 总线自检: 先确保已调用过 W5500HardwareReset(否则芯片在复位态必然失败)
-// 写 MR 寄存器后回读比对, 用于隔离"读恒为 0xFF/0x00"是协议问题还是总线/接线问题
-// 返回 true = 总线正常; false = MISO 未响应, 按顺序查:
-//   1) RSTN 引脚是否为高(芯片不在复位态)  2) VDD 3.3V/GND
-//   3) MISO/MOSI 是否接反  4) CS 是否接到 SCSn  5) 降低 SPI 速率再试
-bool W5500SpiSelfTest(void)
+/**
+ * @brief  等发送缓冲区出现 u16Len 字节空闲
+ */
+static int32_t W5500_WaitTxFree(uint8_t u8Sock, uint16_t u16Len, uint32_t u32TimeoutMs)
 {
-	uint8_t u8Read;
+    uint32_t u32TimeStart = HAL_GetTick();
+    uint8_t  u8Block = W5500_BSB_SOCK_REG(u8Sock);
 
-	// MR bit4 = PB(禁止 ping 响应), 写入无害且随后恢复默认
-	W5500WriteReg(W5500_BSB_COMMON, W5500_REG_MR, 0x10);
-	u8Read = W5500ReadReg(W5500_BSB_COMMON, W5500_REG_MR);
-
-	// 恢复默认值
-	W5500WriteReg(W5500_BSB_COMMON, W5500_REG_MR, 0x00);
-
-	return (u8Read == 0x10);
+    while (W5500_Read16(u8Block, W5500_SN_TX_FSR) < u16Len)
+    {
+        if ((HAL_GetTick() - u32TimeStart) > u32TimeoutMs)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+    return W5500_OK;
 }
 
+/*----------------------------------------------------------------------------
+ * Socket 缓冲区读写(处理 2KB 环形回卷)
+ *----------------------------------------------------------------------------*/
 
-// ============================ 初始化 ============================
-volatile uint8_t u8Read = 0;
-bool W5500HardwareReset(void)
+/**
+ * @brief  从 Socket 接收缓冲区读数据,自动处理跨越缓冲区末尾的情况
+ * @param  u16Offset 缓冲区内的起始偏移(已按缓冲大小取模)
+ */
+static void W5500_ReadSocketBuf(uint8_t u8Sock, uint16_t u16Offset,
+                                uint8_t *pBuf, uint16_t u16Len)
 {
-	// CubeMX 将 CS 初始化为低电平, 先释放片选
-	W5500_CS_HIGH();
-	W5500_RST_HIGH();
-	HAL_Delay(10);
+    uint16_t u16First;
+    uint8_t  u8Block = W5500_BSB_SOCK_RX(u8Sock);
 
-	// 复位时序: RSTN 拉低 > 500us 后释放, 等待 PLL 稳定
-	W5500_RST_LOW();
-	ResetTimerCountUs(&g_u32W5500RstTimer);
-	while (GetTimerTickDeltaUs(g_u32W5500RstTimer, GetCurTimerCountUs()) < W5500_RST_HOLD_US);
-	W5500_RST_HIGH();
-	HAL_Delay(W5500_RST_RECOVER_MS);
+    /* 距离缓冲区末尾还剩多少字节 */
+    u16First = (uint16_t)(W5500_SOCKET_BUF_SIZE - u16Offset);
 
-	// 版本校验
-	u8Read = W5500ReadReg(W5500_BSB_COMMON, W5500_REG_VERSIONR);
-	if (W5500ReadReg(W5500_BSB_COMMON, W5500_REG_VERSIONR) != W5500_CHIP_VERSION)
-	{
-		return false;
-	}
+    if (u16First >= u16Len)
+    {
+        W5500_ReadBuf(u8Block, u16Offset, pBuf, u16Len);
+        return;
+    }
 
-	// 配置各 socket 缓冲区大小: socket0 4KB, 其余 1KB, 并计算回卷掩码
-	for (uint8_t i = 0; i < W5500_SOCKET_NUM; i++)
-	{
-		uint8_t u8Size = (i == 0) ? W5500_SOCKET0_BUF_KB : 1;
-		W5500WriteReg(W5500_BSB_REG(i), W5500_SREG_TXBUF_SIZE, u8Size);
-		W5500WriteReg(W5500_BSB_REG(i), W5500_SREG_RXBUF_SIZE, u8Size);
-
-		g_u16TxMask[i] = (uint16_t)(u8Size * 1024) - 1;
-		g_u16RxMask[i] = g_u16TxMask[i];
-
-		// 允许所有 socket 事件触发中断
-		W5500WriteReg(W5500_BSB_REG(i), W5500_SREG_IMR, 0xFF);
-	}
-
-	// 打开通用中断并清掉残留标志
-	W5500WriteReg(W5500_BSB_COMMON, W5500_REG_IMR, 0xFF);
-	W5500WriteReg(W5500_BSB_COMMON, W5500_REG_IR, 0xFF);
-	W5500WriteReg(W5500_BSB_COMMON, W5500_REG_SIR, 0xFF);
-	g_bW5500IrqFlag = false;
-
-	return true;
+    /* 先读完尾部,再从 0 偏移继续读剩余部分 */
+    W5500_ReadBuf(u8Block, u16Offset, pBuf, u16First);
+    W5500_ReadBuf(u8Block, 0u, &pBuf[u16First], (uint16_t)(u16Len - u16First));
 }
 
-
-void W5500SetNetInfo(const uint8_t *pMac, const uint8_t *pIp, const uint8_t *pSubnet, const uint8_t *pGw)
+/**
+ * @brief  向 Socket 发送缓冲区写数据,自动处理跨越缓冲区末尾的情况
+ */
+static void W5500_WriteSocketBuf(uint8_t u8Sock, uint16_t u16Offset,
+                                 const uint8_t *pBuf, uint16_t u16Len)
 {
-	W5500WriteBuf(W5500_BSB_COMMON, W5500_REG_SHAR, pMac, 6);
-	W5500WriteBuf(W5500_BSB_COMMON, W5500_REG_SIPR, pIp, 4);
-	W5500WriteBuf(W5500_BSB_COMMON, W5500_REG_SUBR, pSubnet, 4);
-	W5500WriteBuf(W5500_BSB_COMMON, W5500_REG_GAR, pGw, 4);
+    uint16_t u16First;
+    uint8_t  u8Block = W5500_BSB_SOCK_TX(u8Sock);
+
+    u16First = (uint16_t)(W5500_SOCKET_BUF_SIZE - u16Offset);
+
+    if (u16First >= u16Len)
+    {
+        W5500_WriteBuf(u8Block, u16Offset, pBuf, u16Len);
+        return;
+    }
+
+    W5500_WriteBuf(u8Block, u16Offset, pBuf, u16First);
+    W5500_WriteBuf(u8Block, 0u, &pBuf[u16First], (uint16_t)(u16Len - u16First));
 }
 
-
-bool W5500GetLinkStatus(void)
+/**
+ * @brief  判断一段数据是否全 0
+ * @note   用于识别调用方没填网络参数的情况,此时改用默认值。
+ */
+static uint8_t W5500_IsAllZero(const uint8_t *pData, uint8_t u8Len)
 {
-	// PHYCFGR bit0 = LNK, 1 表示链路已连接
-	return (W5500ReadReg(W5500_BSB_COMMON, W5500_REG_PHYCFGR) & 0x01) ? true : false;
+    uint8_t i;
+
+    for (i = 0u; i < u8Len; i++)
+    {
+        if (pData[i] != 0u)
+        {
+            return 0u;
+        }
+    }
+    return 1u;
 }
 
+/*----------------------------------------------------------------------------
+ * 初始化
+ *----------------------------------------------------------------------------*/
 
-// ============================ socket 控制 ============================
-
-// 等待 socket 进入指定状态, 超时返回 false
-static bool WaitSocketStatus(const uint8_t u8Socket, const uint8_t u8Status)
+uint8_t W5500_ReadVersion(void)
 {
-	ResetTimerCountUs(&g_u32W5500WaitTimer);
-	while (GetTimerTickDeltaUs(g_u32W5500WaitTimer, GetCurTimerCountUs()) < W5500_WAIT_TIMEOUT_US)
-	{
-		if (W5500GetSocketStatus(u8Socket) == u8Status)
-		{
-			return true;
-		}
-	}
-	return false;
+    return W5500_Read8(W5500_BSB_COMMON, W5500_VERSIONR);
 }
 
-
-bool W5500SocketOpen(const uint8_t u8Socket, const uint8_t u8Mode, const uint16_t u16Port)
+uint8_t W5500_IsReady(void)
 {
-	if (u8Socket >= W5500_SOCKET_NUM)
-	{
-		return false;
-	}
-
-	// 先关闭再配置, 避免残留状态
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_CR, W5500_CR_CLOSE);
-
-	W5500WriteReg16(W5500_BSB_REG(u8Socket), W5500_SREG_PORT, u16Port);
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_MR, u8Mode);
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_CR, W5500_CR_OPEN);
-
-	// TCP 等待进入 INIT, UDP 等待进入 UDP 状态
-	return WaitSocketStatus(u8Socket, (u8Mode == W5500_MODE_UDP) ? W5500_SR_UDP : W5500_SR_INIT);
+    return g_u8Inited;
 }
 
-
-bool W5500SocketListen(const uint8_t u8Socket)
+int32_t W5500_SoftReset(void)
 {
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_CR, W5500_CR_LISTEN);
-	return WaitSocketStatus(u8Socket, W5500_SR_LISTEN);
+    uint32_t u32TimeStart;
+
+    /* 写 1 触发软复位,完成后硬件自动清零 */
+    W5500_Write8(W5500_BSB_COMMON, W5500_MR, W5500_MR_RST);
+
+    u32TimeStart = HAL_GetTick();
+    while ((W5500_Read8(W5500_BSB_COMMON, W5500_MR) & W5500_MR_RST) != 0u)
+    {
+        if ((HAL_GetTick() - u32TimeStart) > W5500_RESET_DONE_TIMEOUT_MS)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+    return W5500_OK;
 }
 
-
-void W5500SocketClose(const uint8_t u8Socket)
+uint8_t W5500_IsLinked(void)
 {
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_CR, W5500_CR_CLOSE);
+    if (W5500_Read8(W5500_BSB_COMMON, W5500_PHYCFGR) & W5500_PHY_LINK)
+    {
+        return 1u;
+    }
+    return 0u;
 }
 
-
-uint8_t W5500GetSocketStatus(const uint8_t u8Socket)
+int32_t W5500_WaitLink(uint32_t u32TimeoutMs)
 {
-	return W5500ReadReg(W5500_BSB_REG(u8Socket), W5500_SREG_SR);
+    uint32_t u32TimeStart;
+
+    if (u32TimeoutMs == 0u)
+    {
+        u32TimeoutMs = W5500_LINK_TIMEOUT_MS;
+    }
+
+    u32TimeStart = HAL_GetTick();
+    while (W5500_IsLinked() == 0u)
+    {
+        if ((HAL_GetTick() - u32TimeStart) > u32TimeoutMs)
+        {
+            return W5500_ERR_NOLINK;
+        }
+    }
+    return W5500_OK;
 }
 
+/*----------------------------------------------------------------------------
+ * INT 引脚中断
+ *----------------------------------------------------------------------------*/
 
-// ============================ 收发 ============================
-
-// 读取 16 位计数值, 连续两次相同才认为有效(芯片内部异步更新)
-static uint16_t ReadReg16Stable(const uint8_t u8Bsb, const uint16_t u16Addr)
+uint8_t W5500_IntIsAsserted(void)
 {
-	uint16_t u16Last = W5500ReadReg16(u8Bsb, u16Addr);
-	while (true)
-	{
-		uint16_t u16Cur = W5500ReadReg16(u8Bsb, u16Addr);
-		if (u16Cur == u16Last)
-		{
-			return u16Cur;
-		}
-		u16Last = u16Cur;
-	}
+    /* EXTI 置过的标志也要算:W5500 的 INT 是电平输出,漏掉的下降沿
+     * 靠这里补上,否则事件会丢 */
+    if (g_u8IntFlag != 0u)
+    {
+        return 1u;
+    }
+
+    if (g_pIntPort == NULL)
+    {
+        return 0u;
+    }
+
+    /* W5500 的 INT 为低电平有效 */
+    if (HAL_GPIO_ReadPin(g_pIntPort, g_u16IntPin) == GPIO_PIN_RESET)
+    {
+        return 1u;
+    }
+    return 0u;
 }
 
-
-uint16_t W5500SocketGetRecvSize(const uint8_t u8Socket)
+uint8_t W5500_ProcessInt(void)
 {
-	return ReadReg16Stable(W5500_BSB_RX(u8Socket), W5500_SREG_RX_RSR);
+    uint8_t u8Sir;
+    uint8_t u8Ir;
+    uint8_t u8Count = 0u;
+    uint8_t i;
+
+    if (g_u8Inited == 0u)
+    {
+        return 0u;
+    }
+
+    g_u8IntFlag = 0u;
+
+    u8Sir = W5500_Read8(W5500_BSB_COMMON, W5500_SIR);
+    if (u8Sir == 0u)
+    {
+        return 0u;
+    }
+
+    for (i = 0u; i < W5500_SOCKET_COUNT; i++)
+    {
+        if ((u8Sir & (uint8_t)(1u << i)) != 0u)
+        {
+            /* 读 Sn_IR 并写回清零,该 Socket 的 INT 源随之撤销 */
+            u8Ir = W5500_SocketClearIr(i);
+            g_au8Event[i] |= u8Ir;
+            u8Count++;
+        }
+    }
+
+    /* SIR 写 1 清零 */
+    W5500_Write8(W5500_BSB_COMMON, W5500_SIR, u8Sir);
+
+    return u8Count;
 }
 
-
-int16_t W5500SocketSend(const uint8_t u8Socket, const uint8_t *pData, const uint16_t u16Len)
+uint8_t W5500_GetEvent(uint8_t u8Sock)
 {
-	if (u8Socket >= W5500_SOCKET_NUM || pData == NULL || u16Len == 0)
-	{
-		return -1;
-	}
-
-	// 等待发送空闲缓冲区足够, 超时返回失败
-	ResetTimerCountUs(&g_u32W5500WaitTimer);
-	while (true)
-	{
-		if (GetTimerTickDeltaUs(g_u32W5500WaitTimer, GetCurTimerCountUs()) >= W5500_WAIT_TIMEOUT_US)
-		{
-			return -1;
-		}
-		if (ReadReg16Stable(W5500_BSB_TX(u8Socket), W5500_SREG_TX_FSR) >= u16Len)
-		{
-			break;
-		}
-	}
-
-	// 从写指针位置写入数据(带环形回卷), 然后更新写指针并启动发送
-	uint16_t u16Ptr = W5500ReadReg16(W5500_BSB_TX(u8Socket), W5500_SREG_TX_WR);
-	W5500WriteSocketBuf(u8Socket, u16Ptr, pData, u16Len);
-	W5500WriteReg16(W5500_BSB_TX(u8Socket), W5500_SREG_TX_WR, u16Ptr + u16Len);
-	W5500WriteReg(W5500_BSB_TX(u8Socket), W5500_SREG_CR, W5500_CR_SEND);
-
-	return (int16_t)u16Len;
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return 0u;
+    }
+    return g_au8Event[u8Sock];
 }
 
-
-int16_t W5500SocketRecv(const uint8_t u8Socket, uint8_t *pData, const uint16_t u16MaxLen)
-{
-	uint16_t u16Size = W5500SocketGetRecvSize(u8Socket);
-	if (u16Size == 0 || pData == NULL)
-	{
-		return 0;
-	}
-
-	// 单次读取不超过接收缓冲区大小
-	uint16_t u16Len = (u16Size > u16MaxLen) ? u16MaxLen : u16Size;
-	uint16_t u16Ptr = W5500ReadReg16(W5500_BSB_RX(u8Socket), W5500_SREG_RX_RD);
-	W5500ReadSocketBuf(u8Socket, u16Ptr, pData, u16Len);
-
-	// 更新读指针并通知芯片数据已取走
-	W5500WriteReg16(W5500_BSB_RX(u8Socket), W5500_SREG_RX_RD, u16Ptr + u16Len);
-	W5500WriteReg(W5500_BSB_RX(u8Socket), W5500_SREG_CR, W5500_CR_RECV);
-
-	return (int16_t)u16Len;
-}
-
-
-void W5500ClearSocketIrq(const uint8_t u8Socket, const uint8_t u8Mask)
-{
-	W5500WriteReg(W5500_BSB_REG(u8Socket), W5500_SREG_IR, u8Mask);
-}
-
-
-// ============================ 中断 ============================
-
-void W5500IrqHandler(void)
-{
-	g_bW5500IrqFlag = true;
-}
-
-
-bool W5500PopIrqFlag(void)
-{
-	if (g_bW5500IrqFlag)
-	{
-		g_bW5500IrqFlag = false;
-		return true;
-	}
-	return false;
-}
-
-
-// INTN 引脚下降沿中断回调, 本工程内只有 W5500 使用外部中断
+/**
+ * @brief  EXTI 回调(HAL 弱符号重载):只置标志,绝不在中断上下文访问 SPI
+ * @note   本工程无其它 EXTI 引脚时可直接使用;若应用层还有别的 EXTI 中断,
+ *         请在应用层重写本回调并自行分发(W5500IntSetFlag 可供置位)。
+ */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	if (GPIO_Pin == INTN_Pin)
-	{
-		W5500IrqHandler();
-	}
+    if ((g_pIntPort != NULL) && (GPIO_Pin == g_u16IntPin))
+    {
+        g_u8IntFlag = 1u;
+    }
+}
+
+void W5500_ClearEvent(uint8_t u8Sock, uint8_t u8Mask)
+{
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return;
+    }
+    g_au8Event[u8Sock] &= (uint8_t)(~u8Mask);
+}
+
+int32_t W5500_SocketIntEnable(uint8_t u8Sock, uint8_t u8Enable)
+{
+    uint8_t u8Simr;
+
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Simr = W5500_Read8(W5500_BSB_COMMON, W5500_SIMR);
+
+    if (u8Enable != 0u)
+    {
+        u8Simr |= (uint8_t)(1u << u8Sock);
+        /* 打开该 Socket 的全部事件源 */
+        W5500_Write8(W5500_BSB_SOCK_REG(u8Sock), W5500_SN_IMR, W5500_SN_IMR_ALL);
+    }
+    else
+    {
+        u8Simr &= (uint8_t)(~(1u << u8Sock));
+    }
+
+    W5500_Write8(W5500_BSB_COMMON, W5500_SIMR, u8Simr);
+
+    return W5500_OK;
+}
+
+int32_t W5500_Init(const W5500_Config_t *pConfig)
+{
+    const uint8_t *pMac;
+    const uint8_t *pIp;
+    const uint8_t *pGw;
+    const uint8_t *pMask;
+    uint8_t u8Try;
+    uint8_t i;
+    int32_t s32Result;
+
+    if ((pConfig == NULL) || (pConfig->pSpi == NULL) || (pConfig->pCsPort == NULL))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    g_u8Inited = 0u;
+
+    /* 1. 绑定 SPI 设备,先把片选释放(W5500 低电平为选中) */
+    if (SpiDevAttach(&g_sSpiDev, pConfig->pSpi,
+                     pConfig->pCsPort, pConfig->CsPin) != SPI_DEV_OK)
+    {
+        return W5500_ERR_PARAM;
+    }
+    SpiDevSetCsActiveLevel(&g_sSpiDev, 0u);
+    SpiDevDeselect(&g_sSpiDev);
+
+    /* 2. 硬件复位(接了 RST 引脚才执行) */
+    if (pConfig->pRstPort != NULL)
+    {
+        HAL_GPIO_WritePin(pConfig->pRstPort, pConfig->RstPin, GPIO_PIN_RESET);
+        HAL_Delay(W5500_RESET_LOW_MS);
+        HAL_GPIO_WritePin(pConfig->pRstPort, pConfig->RstPin, GPIO_PIN_SET);
+        HAL_Delay(W5500_RESET_HIGH_MS);
+    }
+
+    /* 3. 探测芯片:VERSIONR 必须等于 0x04,否则说明 SPI 或片选有问题 */
+    s32Result = W5500_ERR_NO_DEVICE;
+    for (u8Try = 0u; u8Try < 5u; u8Try++)
+    {
+        if (W5500_ReadVersion() == W5500_VERSION_REG_VALUE)
+        {
+            s32Result = W5500_OK;
+            break;
+        }
+        HAL_Delay(2u);
+    }
+    if (s32Result != W5500_OK)
+    {
+        return s32Result;
+    }
+
+    /* 4. 软件复位,确保寄存器回到默认值 */
+    if (W5500_SoftReset() != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+    HAL_Delay(W5500_RESET_HIGH_MS);
+
+    /* 5. 写入网络参数(未填则用默认值) */
+    pMac  = (W5500_IsAllZero(pConfig->Mac, 6u) != 0u) ? g_au8DefaultMac : pConfig->Mac;
+    pIp   = (W5500_IsAllZero(pConfig->Ip, 4u) != 0u) ? g_au8DefaultIp : pConfig->Ip;
+    pGw   = (W5500_IsAllZero(pConfig->Gateway, 4u) != 0u) ? g_au8DefaultGw : pConfig->Gateway;
+    pMask = (W5500_IsAllZero(pConfig->Subnet, 4u) != 0u) ? g_au8DefaultMask : pConfig->Subnet;
+
+    W5500_WriteBuf(W5500_BSB_COMMON, W5500_SHAR, pMac, 6u);
+    W5500_WriteBuf(W5500_BSB_COMMON, W5500_GAR, pGw, 4u);
+    W5500_WriteBuf(W5500_BSB_COMMON, W5500_SUBR, pMask, 4u);
+    W5500_WriteBuf(W5500_BSB_COMMON, W5500_SIPR, pIp, 4u);
+
+    /* 6. 8 个 Socket 的收/发缓冲区各分配 2KB(芯片共 16KB + 16KB) */
+    for (i = 0u; i < W5500_SOCKET_COUNT; i++)
+    {
+        W5500_Write8(W5500_BSB_SOCK_REG(i), W5500_SN_RXBUF_SIZE, 2u);
+        W5500_Write8(W5500_BSB_SOCK_REG(i), W5500_SN_TXBUF_SIZE, 2u);
+    }
+
+    /* 7. 重传参数:200ms 超时 × 8 次 */
+    W5500_Write16(W5500_BSB_COMMON, W5500_RTR, 2000u);
+    W5500_Write8(W5500_BSB_COMMON, W5500_RCR, 8u);
+
+    /* 8. INT 引脚:接了才放开中断,否则保持全屏蔽避免 INT 引脚悬空抖动 */
+    g_pIntPort  = pConfig->pIntPort;
+    g_u16IntPin = pConfig->IntPin;
+    g_u8IntFlag = 0u;
+
+    W5500_Write8(W5500_BSB_COMMON, W5500_IMR, 0x00u);
+    W5500_Write8(W5500_BSB_COMMON, W5500_SIMR, 0x00u);
+    W5500_Write8(W5500_BSB_COMMON, W5500_SIR, 0xFFu);
+    W5500_Write8(W5500_BSB_COMMON, W5500_IR, 0xFFu);
+
+    for (i = 0u; i < W5500_SOCKET_COUNT; i++)
+    {
+        g_au8Event[i] = 0u;
+    }
+
+    g_u8Inited = 1u;
+
+    return W5500_OK;
+}
+
+/*----------------------------------------------------------------------------
+ * Socket 操作
+ *----------------------------------------------------------------------------*/
+
+uint8_t W5500_SocketStatus(uint8_t u8Sock)
+{
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return W5500_SR_CLOSED;
+    }
+    return W5500_Read8(W5500_BSB_SOCK_REG(u8Sock), W5500_SN_SR);
+}
+
+uint8_t W5500_SocketClearIr(uint8_t u8Sock)
+{
+    uint8_t u8Ir;
+
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return 0u;
+    }
+
+    u8Ir = W5500_Read8(W5500_BSB_SOCK_REG(u8Sock), W5500_SN_IR);
+    if (u8Ir != 0u)
+    {
+        /* Sn_IR 写 1 清零 */
+        W5500_Write8(W5500_BSB_SOCK_REG(u8Sock), W5500_SN_IR, u8Ir);
+    }
+    return u8Ir;
+}
+
+int32_t W5500_SocketOpen(uint8_t u8Sock, uint8_t u8Protocol, uint16_t u16Port)
+{
+    uint8_t u8Block;
+
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return W5500_ERR_PARAM;
+    }
+    if ((u8Protocol != W5500_PROTO_TCP) &&
+        (u8Protocol != W5500_PROTO_UDP) &&
+        (u8Protocol != W5500_PROTO_MACRAW))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    /* 先关掉可能残留的连接 */
+    W5500_SocketClose(u8Sock);
+
+    W5500_Write8(u8Block, W5500_SN_MR, u8Protocol);
+    if (u16Port != 0u)
+    {
+        W5500_Write16(u8Block, W5500_SN_PORT, u16Port);
+    }
+
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_OPEN);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    if (W5500_SocketStatus(u8Sock) == W5500_SR_CLOSED)
+    {
+        return W5500_ERR_STATE;
+    }
+
+    /* 接了 INT 引脚才打开该 Socket 的中断上报 */
+    g_au8Event[u8Sock] = 0u;
+    if (g_pIntPort != NULL)
+    {
+        (void)W5500_SocketIntEnable(u8Sock, 1u);
+    }
+
+    return W5500_OK;
+}
+
+int32_t W5500_SocketListen(uint8_t u8Sock)
+{
+    uint8_t u8Block;
+
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    if (W5500_SocketStatus(u8Sock) != W5500_SR_INIT)
+    {
+        return W5500_ERR_STATE;
+    }
+
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_LISTEN);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    return W5500_WaitSocketStatus(u8Sock, W5500_SR_LISTEN, W5500_CMD_TIMEOUT_MS);
+}
+
+int32_t W5500_SocketConnect(uint8_t u8Sock, const uint8_t pDstIp[4], uint16_t u16DstPort)
+{
+    uint32_t u32TimeStart;
+    uint8_t  u8Block;
+    uint8_t  u8Ir;
+
+    if ((u8Sock >= W5500_SOCKET_COUNT) || (pDstIp == NULL))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    W5500_WriteBuf(u8Block, W5500_SN_DIPR, pDstIp, 4u);
+    W5500_Write16(u8Block, W5500_SN_DPORT, u16DstPort);
+
+    (void)W5500_SocketClearIr(u8Sock);
+
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_CONNECT);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    /* 握手由芯片完成,这里等状态迁移或超时中断 */
+    u32TimeStart = HAL_GetTick();
+    while (W5500_SocketStatus(u8Sock) != W5500_SR_ESTABLISHED)
+    {
+        u8Ir = W5500_SocketClearIr(u8Sock);
+        if ((u8Ir & W5500_SN_IR_TIMEOUT) != 0u)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+        if (W5500_SocketStatus(u8Sock) == W5500_SR_CLOSED)
+        {
+            return W5500_ERR_STATE;
+        }
+        if ((HAL_GetTick() - u32TimeStart) > W5500_CONNECT_TIMEOUT_MS)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+
+    return W5500_OK;
+}
+
+void W5500_SocketClose(uint8_t u8Sock)
+{
+    uint8_t u8Block;
+
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    /* 先关中断上报,避免关闭过程中 INT 反复拉低 */
+    (void)W5500_SocketIntEnable(u8Sock, 0u);
+
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_CLOSE);
+    (void)W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS);
+    (void)W5500_WaitSocketStatus(u8Sock, W5500_SR_CLOSED, W5500_CMD_TIMEOUT_MS);
+
+    /* 清掉关闭过程中产生的标志,避免影响下一次连接 */
+    W5500_Write8(u8Block, W5500_SN_IR, 0xFFu);
+    g_au8Event[u8Sock] = 0u;
+}
+
+uint16_t W5500_SocketRecvSize(uint8_t u8Sock)
+{
+    if (u8Sock >= W5500_SOCKET_COUNT)
+    {
+        return 0u;
+    }
+    return W5500_Read16(W5500_BSB_SOCK_REG(u8Sock), W5500_SN_RX_RSR);
+}
+
+int32_t W5500_SocketSend(uint8_t u8Sock, const uint8_t *pData, uint16_t u16Len)
+{
+    uint32_t u32TimeStart;
+    uint16_t u16Wr;
+    uint16_t u16Offset;
+    uint8_t  u8Block;
+    uint8_t  u8Status;
+    uint8_t  u8Ir;
+
+    if ((u8Sock >= W5500_SOCKET_COUNT) || (pData == NULL) || (u16Len == 0u))
+    {
+        return W5500_ERR_PARAM;
+    }
+    if (u16Len > W5500_SOCKET_BUF_SIZE)
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block  = W5500_BSB_SOCK_REG(u8Sock);
+    u8Status = W5500_SocketStatus(u8Sock);
+    if ((u8Status != W5500_SR_ESTABLISHED) &&
+        (u8Status != W5500_SR_CLOSE_WAIT) &&
+        (u8Status != W5500_SR_UDP))
+    {
+        return W5500_ERR_STATE;
+    }
+
+    /* 等发送缓冲区腾出足够空间 */
+    if (W5500_WaitTxFree(u8Sock, u16Len, W5500_TXFREE_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_NO_MEM;
+    }
+
+    /* 数据写入发送缓冲区,再推进写指针 */
+    u16Wr     = W5500_Read16(u8Block, W5500_SN_TX_WR);
+    u16Offset = (uint16_t)(u16Wr & W5500_SOCKET_BUF_MASK);
+    W5500_WriteSocketBuf(u8Sock, u16Offset, pData, u16Len);
+    W5500_Write16(u8Block, W5500_SN_TX_WR, (uint16_t)(u16Wr + u16Len));
+
+    /* 清旧的 SEND_OK 后下发送命令 */
+    W5500_Write8(u8Block, W5500_SN_IR, W5500_SN_IR_SENDOK);
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_SEND);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    /* UDP 发送完成快;TCP 要等对端 ACK,期间可能触发重传 */
+    u32TimeStart = HAL_GetTick();
+    while (1)
+    {
+        u8Ir = W5500_SocketClearIr(u8Sock);
+        if ((u8Ir & W5500_SN_IR_SENDOK) != 0u)
+        {
+            return (int32_t)u16Len;
+        }
+        if ((u8Ir & W5500_SN_IR_TIMEOUT) != 0u)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+        if ((HAL_GetTick() - u32TimeStart) > W5500_SEND_OK_TIMEOUT_MS)
+        {
+            return W5500_ERR_TIMEOUT;
+        }
+    }
+}
+
+int32_t W5500_SocketSendTo(uint8_t u8Sock, const uint8_t pDstIp[4],
+                           uint16_t u16DstPort, const uint8_t *pData, uint16_t u16Len)
+{
+    uint8_t u8Block;
+
+    if ((u8Sock >= W5500_SOCKET_COUNT) || (pDstIp == NULL))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    /* UDP 无连接:每次发送前指定目标地址 */
+    W5500_WriteBuf(u8Block, W5500_SN_DIPR, pDstIp, 4u);
+    W5500_Write16(u8Block, W5500_SN_DPORT, u16DstPort);
+
+    return W5500_SocketSend(u8Sock, pData, u16Len);
+}
+
+int32_t W5500_SocketRecv(uint8_t u8Sock, uint8_t *pBuf, uint16_t u16MaxLen)
+{
+    uint16_t u16Size;
+    uint16_t u16Len;
+    uint16_t u16Rd;
+    uint16_t u16Offset;
+    uint8_t  u8Block;
+
+    if ((u8Sock >= W5500_SOCKET_COUNT) || (pBuf == NULL) || (u16MaxLen == 0u))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    u16Size = W5500_Read16(u8Block, W5500_SN_RX_RSR);
+    if (u16Size == 0u)
+    {
+        return 0;
+    }
+
+    u16Len = (u16Size > u16MaxLen) ? u16MaxLen : u16Size;
+
+    /* 读数据 + 推进读指针 + 通知芯片已取走(RECV) */
+    u16Rd     = W5500_Read16(u8Block, W5500_SN_RX_RD);
+    u16Offset = (uint16_t)(u16Rd & W5500_SOCKET_BUF_MASK);
+    W5500_ReadSocketBuf(u8Sock, u16Offset, pBuf, u16Len);
+    W5500_Write16(u8Block, W5500_SN_RX_RD, (uint16_t)(u16Rd + u16Len));
+
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_RECV);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    return (int32_t)u16Len;
+}
+
+/**
+ * @brief  UDP 接收: 同时取出发送方 IP 与端口
+ * @note   W5500 在 UDP 模式下,接收缓冲里每条数据报都是
+ *         "8 字节报文头 + 负载",且 Sn_RX_RSR 把报文头算在内:
+ *           [0..3] 源 IP  [4..5] 源端口(大端)  [6..7] 负载长度(大端)
+ *         所以不能按 TCP 的数据流直接读,必须跳过报文头。
+ *         官方 ioLibrary 的 recvfrom() 也是这个顺序。
+ */
+int32_t W5500_SocketRecvFrom(uint8_t u8Sock, uint8_t *pBuf, uint16_t u16MaxLen,
+                             uint8_t pSrcIp[4], uint16_t *pSrcPort)
+{
+    uint8_t  au8Head[8];           /* 源 IP(4) + 源端口(2) + 负载长度(2) */
+    uint16_t u16Size;
+    uint16_t u16Dgram;             /* 整条数据报的负载长度(不含报文头)   */
+    uint16_t u16Copy;              /* 本次拷给用户的长度                 */
+    uint16_t u16Rd;
+    uint16_t u16Offset;
+    uint8_t  u8Block;
+
+    if ((u8Sock >= W5500_SOCKET_COUNT) || (pBuf == NULL) || (u16MaxLen == 0u))
+    {
+        return W5500_ERR_PARAM;
+    }
+
+    u8Block = W5500_BSB_SOCK_REG(u8Sock);
+
+    u16Size = W5500_Read16(u8Block, W5500_SN_RX_RSR);
+    if (u16Size < 8u)              /* 连报文头都还没收全 */
+    {
+        return 0;
+    }
+
+    u16Rd     = W5500_Read16(u8Block, W5500_SN_RX_RD);
+    u16Offset = (uint16_t)(u16Rd & W5500_SOCKET_BUF_MASK);
+
+    /* 1. 先读 8 字节报文头,取出源地址与负载长度 */
+    W5500_ReadSocketBuf(u8Sock, u16Offset, au8Head, 8u);
+
+    u16Dgram = (uint16_t)(((uint16_t)au8Head[6] << 8) | (uint16_t)au8Head[7]);
+    u16Copy  = (u16Dgram > u16MaxLen) ? u16MaxLen : u16Dgram;
+
+    /* 2. 读负载(截断时剩余部分照样要消费,否则读指针与芯片不一致) */
+    if (u16Copy > 0u)
+    {
+        W5500_ReadSocketBuf(u8Sock,
+                            (uint16_t)((u16Offset + 8u) & W5500_SOCKET_BUF_MASK),
+                            pBuf, u16Copy);
+    }
+
+    /* 3. 读指针跨越"报文头 + 整条负载",再发 RECV 通知芯片释放缓冲 */
+    W5500_Write16(u8Block, W5500_SN_RX_RD, (uint16_t)(u16Rd + 8u + u16Dgram));
+    W5500_Write8(u8Block, W5500_SN_CR, W5500_CR_RECV);
+    if (W5500_WaitCommandDone(u8Sock, W5500_CMD_TIMEOUT_MS) != W5500_OK)
+    {
+        return W5500_ERR_TIMEOUT;
+    }
+
+    /* 4. 源地址取自报文头(比读 Sn_DIPR 可靠: 该寄存器会被后续数据报覆盖) */
+    if (pSrcIp != NULL)
+    {
+        pSrcIp[0] = au8Head[0];
+        pSrcIp[1] = au8Head[1];
+        pSrcIp[2] = au8Head[2];
+        pSrcIp[3] = au8Head[3];
+    }
+    if (pSrcPort != NULL)
+    {
+        *pSrcPort = (uint16_t)(((uint16_t)au8Head[4] << 8) | (uint16_t)au8Head[5]);
+    }
+
+    return (int32_t)u16Copy;
 }

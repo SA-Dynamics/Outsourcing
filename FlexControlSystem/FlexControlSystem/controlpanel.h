@@ -32,6 +32,9 @@ public:
     };
 
     void SetReadOnly(const bool bReadOnly);
+    // 是否有动作序列正在执行(运动段/间隔段/组合运动都算);
+    // 退出确认等场景需要据此提示"下位机会继续跑完当前指令"
+    bool IsMotionRunning(void) const;
     void SaveSettings(void);
     void SaveSettings(const QString &qstrFile);
     void LoadSettings(const QString &qstrFile);

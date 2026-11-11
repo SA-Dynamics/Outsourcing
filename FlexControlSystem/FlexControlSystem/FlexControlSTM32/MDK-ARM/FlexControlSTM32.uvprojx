@@ -438,6 +438,16 @@
               <FileType>1</FileType>
               <FilePath>..\Application\W5500.c</FilePath>
             </File>
+            <File>
+              <FileName>SPI_MasterFullDuplexDMA.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\SPI_MasterFullDuplexDMA.c</FilePath>
+            </File>
+            <File>
+              <FileName>SaveParams.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\SaveParams.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

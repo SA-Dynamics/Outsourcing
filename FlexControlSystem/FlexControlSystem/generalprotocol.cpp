@@ -367,3 +367,50 @@ void GeneralProtocol::LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd
     qbtRespond.append(u8FRAME_TAIL2);
 }
 
+
+// 保存IP(0x0F): 数据域 4 字节 IP; 下位机写完 Flash 回 0x10(1=成功 0=失败)
+// 应答帧有两种, 不能预先生成期望帧做整帧比对, 由 ConnectiveHandle 按命令码匹配
+void GeneralProtocol::SaveIpProtocol(const QByteArray &qbtIp, QByteArray &qbtCmd)
+{
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_SAVE_IP_CMD);
+    qbtCmd.append(uint8_t(4));
+
+    // 防御: 不足 4 字节按 0 补齐, 多出的截断, 保证帧长与长度域一致
+    QByteArray qbtIpData = qbtIp.left(4);
+    while (qbtIpData.size() < 4)
+    {
+        qbtIpData.append(uint8_t(0));
+    }
+    qbtCmd.append(qbtIpData);
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "save ip data:" << qbtCmd.toHex();
+}
+
+
+// 获取IP(0x11): 数据域 1 字节 0x01; 下位机回 0x12 + 4 字节 IP
+// 应答数据域为变长 IP, 由 ConnectiveHandle 按命令码匹配, 不走整帧比对
+void GeneralProtocol::GetIpProtocol(QByteArray &qbtCmd)
+{
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_GET_IP_CMD);
+    qbtCmd.append(uint8_t(1));
+    qbtCmd.append(uint8_t(0x01));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "get ip cmd:" << qbtCmd.toHex();
+}
+
