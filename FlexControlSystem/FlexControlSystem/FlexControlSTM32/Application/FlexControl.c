@@ -7,11 +7,28 @@
 #include "Network.h"
 #include "SaveParams.h"
 #include "Timer.h"
+#include "spi.h"
 
 // 网络初始化失败后的重试间隔 ms
 // 注意: 每次重试内部硬复位 W5500 会阻塞约 60ms, 电机脉冲由定时器中断驱动
 // 不受影响, 但若现场对主循环实时性敏感可加大此间隔
 #define NETWORK_RETRY_INTERVAL_MS	5000
+
+/*
+ * W5500 硬件绑定: SPI 句柄/CS/RST/INT 引脚只在这里出现一次,
+ * Network.c 本身不认识任何具体引脚(它是可搬到其它项目的通用内核)。
+ * 换 SPI 口或换板子只改这个结构体。
+ */
+static const NetworkHwConfig_t g_sNetworkHwCfg =
+{
+	.pSpi     = &hspi1,
+	.pCsPort  = SPI_CS_GPIO_Port,
+	.CsPin    = SPI_CS_Pin,
+	.pRstPort = RSTN_GPIO_Port,
+	.RstPin   = RSTN_Pin,
+	.pIntPort = INTN_GPIO_Port,
+	.IntPin   = INTN_Pin,
+};
 
 // 保存 IP 成功后延时复位 ms
 // 留出时间让 0x10 应答帧从发送队列真正发到网上(主循环 1 个周期约 10ms),
@@ -250,7 +267,7 @@ static void NetworkRetryHandle(void)
 	ResetTimerCount(&s_u32RetryTimer);
 
 	// NetworkInit 内部会清空全部状态, 重复调用安全
-	g_bNetworkInitSuccess = NetworkInit();
+	g_bNetworkInitSuccess = NetworkInit(&g_sNetworkHwCfg);
 }
 
 
@@ -266,7 +283,7 @@ void FlexControlInit(void)
 	LightControlInit();
 
 	// 首次初始化网络, 失败不阻塞其余模块, 由 NetworkRetryHandle 定期重试
-	g_bNetworkInitSuccess = NetworkInit();
+	g_bNetworkInitSuccess = NetworkInit(&g_sNetworkHwCfg);
 }
 
 
