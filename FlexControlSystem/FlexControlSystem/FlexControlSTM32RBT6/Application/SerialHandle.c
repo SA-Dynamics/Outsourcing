@@ -1,0 +1,723 @@
+#include "SerialHandle.h"
+#include "usart.h"
+#include "Network.h"
+#include <string.h>
+#include "Timer.h"
+
+
+#define HEART_BEAT_RESPOND_SIZE			8
+#define MOTION_FINISH_RESPOND_SIZE		10
+
+typedef struct
+{
+	struct
+	{
+		uint8_t u8RecvBuffer[UART_RECV_DATA_BUFFER_SIZE];
+		uint16_t u16WriteIndex;
+		uint16_t u16ReadIndex;
+		uint16_t u16DataIndex;
+		bool bRecvFinish;
+		uint8_t u8FSMStep;
+		
+		DMA_HandleTypeDef *hdma;
+	}sRecv;	
+	
+	struct
+	{
+		struct
+		{
+			uint8_t u8SendData[UART_SEND_DATA_LEN];
+			uint8_t u8Len;
+		}sBuffer[UART_SEND_BUFFER_SIZE];
+		uint16_t u16WriteIndex;
+		uint16_t u16ReadIndex;
+		uint16_t u16BufferLen;
+		bool bSendFinish;
+		uint8_t u8FSMStep;
+		
+		DMA_HandleTypeDef *hdma;
+	}sSend;	
+
+	UART_HandleTypeDef *huart;	
+}SerialDataType;
+
+// 串口通信实例
+SerialDataType g_sSerial1Data;
+
+// 存放处理过后的数据, 所有通信方式共享
+struct
+{
+	uint8_t u8WriteIndex;
+	uint8_t u8ReadIndex;
+	uint8_t u8BufferLen;
+	SerialInfo sSerialInfoBuffer[SERIAL_INFO_BUFFER_SIZE];
+}g_sParseData;
+
+
+// 检测空闲中断
+void CbUartIdleHandler(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart1)
+	{
+		g_sSerial1Data.sRecv.bRecvFinish = true;
+	}	
+}
+
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart1)
+	{
+		g_sSerial1Data.sSend.bSendFinish = true;
+	}
+}
+
+
+void SerialHandleInit(void)
+{	
+	g_sSerial1Data.huart = &huart1;
+	g_sSerial1Data.sRecv.hdma = &hdma_usart1_rx;
+	g_sSerial1Data.sSend.hdma = &hdma_usart1_tx;
+	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+	HAL_UART_Receive_DMA(&huart1, g_sSerial1Data.sRecv.u8RecvBuffer, sizeof(g_sSerial1Data.sRecv.u8RecvBuffer));
+}
+
+
+// 获取解析后的数据, 供外部调用
+bool GetSerialInfo(SerialInfo *pInfo)
+{
+	bool bRet = false;
+	
+	if (g_sParseData.u8BufferLen)
+	{
+		memcpy(pInfo, &g_sParseData.sSerialInfoBuffer[g_sParseData.u8ReadIndex], sizeof(SerialInfo));
+		g_sParseData.u8ReadIndex = (g_sParseData.u8ReadIndex + 1) % SERIAL_INFO_BUFFER_SIZE;
+		
+		g_sParseData.u8BufferLen--;
+		bRet = true;
+	}
+	
+	return bRet;
+}
+
+
+// 将解析数据存放在buffer中
+static void SendRecvParseInfoToBuffer(const SerialInfo *pInfo)
+{
+	if (g_sParseData.u8BufferLen < SERIAL_INFO_BUFFER_SIZE)
+	{
+		memcpy(&g_sParseData.sSerialInfoBuffer[g_sParseData.u8WriteIndex], pInfo, sizeof(SerialInfo));
+		g_sParseData.u8WriteIndex = (g_sParseData.u8WriteIndex + 1) % SERIAL_INFO_BUFFER_SIZE;
+		g_sParseData.u8BufferLen++;
+	}
+}
+
+
+// 解析运动指令
+static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	pInfoWrite->u8MotionIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
+	
+	pInfoWrite->fMotionVoltage = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+	pInfoWrite->fMotionFrequency = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 6) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+	pInfoWrite->fMotionTimeUse = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 7) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 8) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+	
+	pInfoWrite->s16AngleOffset = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 9) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 10) % UART_RECV_DATA_BUFFER_SIZE]);
+		
+	pInfoWrite->s8ModifyCoeff = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 12) % UART_RECV_DATA_BUFFER_SIZE]);
+}
+
+
+
+// 解析光源开启指令: 索引1B + 亮度1B + 保持时间2B(单位100ms)
+static void ParseLightData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	pInfoWrite->u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
+
+	pInfoWrite->u8LightBrightness = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3) % UART_RECV_DATA_BUFFER_SIZE];
+
+	pInfoWrite->u16LightKeepTime = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE] << 8) |
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE]);
+}
+
+
+
+// 解析保存IP指令: 数据域 = 4 字节 IP(按顺序 IP0~IP3)
+static void ParseIpData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		pInfoWrite->u8Ip[i] = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2 + i) % UART_RECV_DATA_BUFFER_SIZE];
+	}
+}
+
+
+
+void ParseUartData(SerialDataType *pSerial)
+{
+	SerialInfo sInfo;
+	uint16_t u16CheckSum = 0;
+
+	memset(&sInfo, 0, sizeof(sInfo));
+
+	// 判断帧类型
+	switch (pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16DataIndex])
+	{
+		case 0x01:
+			sInfo.eInfo = INFO_HEART;
+			break;
+
+		case 0x03:
+			sInfo.eInfo = INFO_MOTION;
+			ParseMotionData(&sInfo, pSerial);
+			break;
+
+		case 0x05:
+			sInfo.eInfo = INFO_STOP_MOTION;
+			break;
+
+		// 料仓指令数据域布局与振动盘一致(索引+电压+频率+时间), 解析函数复用
+		case 0x07:
+			sInfo.eInfo = INFO_BIN_MOTION;
+			ParseMotionData(&sInfo, pSerial);
+			break;
+
+		case 0x09:
+			sInfo.eInfo = INFO_STOP_BIN_MOTION;
+			break;
+
+		case 0x0B:
+			sInfo.eInfo = INFO_LIGHT_ON;
+			ParseLightData(&sInfo, pSerial);
+			break;
+
+		case 0x0D:
+			sInfo.eInfo = INFO_LIGHT_OFF;
+			// 协议 N=0 为关闭全部; 兼容扩展: N>=1 时首字节为光源索引, 只关指定路
+			if (pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE] >= 1)
+			{
+				sInfo.u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
+			}
+			break;
+
+		// 保存IP: 数据域固定 4 字节; 长度不符直接丢弃, 避免按错位的数据写 Flash
+		case 0x0F:
+			if (pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE] != 4)
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_IP;
+			ParseIpData(&sInfo, pSerial);
+			break;
+
+		// 获取IP: 数据域 1 字节(固定 0x01), 本机无需使用其内容
+		case 0x11:
+			sInfo.eInfo = INFO_GET_IP;
+			break;
+
+		default:
+			return;
+	}
+	
+	uint8_t u8DataSize = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE];
+	
+	// 校验数据
+	for (uint8_t i = 0; i < u8DataSize + 2; i++)
+	{
+		u16CheckSum += pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + i) % UART_RECV_DATA_BUFFER_SIZE];
+	}
+	u16CheckSum = ~u16CheckSum + 1;
+	
+	if ((u16CheckSum >> 8) == pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2 + u8DataSize) % UART_RECV_DATA_BUFFER_SIZE] &&
+		(u16CheckSum & 0xFF) == pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2 + u8DataSize + 1) % UART_RECV_DATA_BUFFER_SIZE])
+	{
+		SendRecvParseInfoToBuffer(&sInfo);
+	}	
+}
+
+
+static void UartRecvBufferHandler(SerialDataType *pSerial)
+{
+    enum
+    {
+		CHECK_FRAME_RECV = 0,
+        UPDATE_WRITE_INDEX,
+        FIND_FRAME_HEAD,
+        FIND_FRAME_TAIL,
+        PARSE_DATA,
+    };
+    static uint8_t u8DataLen = 0;
+
+    switch (pSerial->sRecv.u8FSMStep)
+    {
+		case CHECK_FRAME_RECV:
+            // 首先判断接收完成标志
+			if (pSerial->sRecv.bRecvFinish)
+			{
+				pSerial->sRecv.u8FSMStep = UPDATE_WRITE_INDEX;
+				pSerial->sRecv.bRecvFinish = false;
+			}
+			break;
+
+        case UPDATE_WRITE_INDEX:
+			// 计算写索引在buffer中的位置
+            pSerial->sRecv.u16WriteIndex = 
+                UART_RECV_DATA_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(pSerial->sRecv.hdma);
+            
+			// 计算接收了多少个数据
+			uint16_t u16Diff = (pSerial->sRecv.u16WriteIndex >= pSerial->sRecv.u16ReadIndex) ? 
+				(pSerial->sRecv.u16WriteIndex - pSerial->sRecv.u16ReadIndex) : 
+				(0XFFFF - pSerial->sRecv.u16ReadIndex + pSerial->sRecv.u16WriteIndex + 1);
+            
+			// 判断是否需要查找帧头
+			if (pSerial->sRecv.u16WriteIndex != pSerial->sRecv.u16ReadIndex && u16Diff >= 8)
+            {
+                pSerial->sRecv.u8FSMStep = FIND_FRAME_HEAD;
+            }
+            else
+            {
+                pSerial->sRecv.u8FSMStep = CHECK_FRAME_RECV;
+            }
+            break;
+		
+        case FIND_FRAME_HEAD:
+            // 判断帧头
+            if (0x55 == pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16ReadIndex] && 
+				0xAA == pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16ReadIndex + 1) % UART_RECV_DATA_BUFFER_SIZE])
+            {                
+                pSerial->sRecv.u8FSMStep = FIND_FRAME_TAIL;
+				
+				// 获取数据所在位置
+				pSerial->sRecv.u16DataIndex = (pSerial->sRecv.u16ReadIndex + 2) % UART_RECV_DATA_BUFFER_SIZE;
+            }
+            else
+            {
+                // 如果没有找到帧头, 就重新等待接收
+                if (pSerial->sRecv.u16WriteIndex == pSerial->sRecv.u16ReadIndex)
+                {
+                    pSerial->sRecv.u8FSMStep = CHECK_FRAME_RECV;
+                    break;
+                }
+				
+				// 没有找到帧头的情况下, 把读索引前移, 为下一轮查找帧头
+				pSerial->sRecv.u16ReadIndex = (pSerial->sRecv.u16ReadIndex + 1) % UART_RECV_DATA_BUFFER_SIZE;
+            }
+            break;
+
+        case FIND_FRAME_TAIL:
+            if (0xAA == pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16ReadIndex] && 
+				0x55 == pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16ReadIndex + 1) % UART_RECV_DATA_BUFFER_SIZE])
+            {
+				// 找到了帧尾, 去校验数据
+				pSerial->sRecv.u8FSMStep = PARSE_DATA;
+            }
+            else
+            {
+				// 如果没有找到帧尾, 就重新等待接收
+                if (pSerial->sRecv.u16WriteIndex == pSerial->sRecv.u16ReadIndex)
+                {
+                    pSerial->sRecv.u8FSMStep = CHECK_FRAME_RECV;
+                    break;
+                }
+				
+				// 没有找到帧尾的情况下, 把读索引前移, 为下一轮查找帧尾
+				pSerial->sRecv.u16ReadIndex = (pSerial->sRecv.u16ReadIndex + 1) % UART_RECV_DATA_BUFFER_SIZE;
+            }
+            break;
+
+        case PARSE_DATA:
+            // 解析数据
+            ParseUartData(pSerial);			
+		
+			// 把读索引更新到下一帧的开头位置
+            pSerial->sRecv.u16ReadIndex = (pSerial->sRecv.u16ReadIndex + 2) % UART_RECV_DATA_BUFFER_SIZE;
+
+            if (pSerial->sRecv.u16ReadIndex == pSerial->sRecv.u16WriteIndex)
+            {
+                // 当前接收到的数据已经读完
+                pSerial->sRecv.u8FSMStep = CHECK_FRAME_RECV;
+            }
+            else
+            {
+                // 查找下一个帧头
+                pSerial->sRecv.u8FSMStep = FIND_FRAME_HEAD;
+            }           
+            break;
+    }
+}
+
+
+// 获取要发送的数据
+static bool GetSendByteArray(uint8_t *pData, uint8_t *pLen)
+{
+	bool bRet = false;
+	
+	if (g_sSerial1Data.sSend.u16BufferLen)
+	{
+		memcpy(pData, g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16ReadIndex].u8SendData, 
+			g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16ReadIndex].u8Len);
+		
+		*pLen = g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16ReadIndex].u8Len;
+		g_sSerial1Data.sSend.u16ReadIndex = (g_sSerial1Data.sSend.u16ReadIndex + 1) % UART_SEND_BUFFER_SIZE;
+		
+		g_sSerial1Data.sSend.u16BufferLen--;
+		bRet = true;
+	}
+	
+	return bRet;
+}
+
+
+// 将发送数据存放在buffer中
+static void SaveSendByteArray(const uint8_t *pData, const uint8_t u8Len)
+{
+	// 双路输出: TCP 已连接时同一帧应答同时发往网络与串口
+	// (心跳/完成反馈帧都很小, NETWORK_SEND_QUEUE_SIZE=8 足够; 网络层
+	//  发送缓冲不足时 NetworkSendData 返回 false, 帧不丢失只延后)
+	if (NetworkIsConnected())
+	{
+		(void)NetworkSendData(pData, u8Len);
+	}
+
+	if (g_sSerial1Data.sSend.u16BufferLen < UART_SEND_BUFFER_SIZE)
+	{
+		memcpy(g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16WriteIndex].u8SendData, pData, u8Len);
+		g_sSerial1Data.sSend.sBuffer[g_sSerial1Data.sSend.u16WriteIndex].u8Len = u8Len;
+		g_sSerial1Data.sSend.u16WriteIndex = (g_sSerial1Data.sSend.u16WriteIndex + 1) % UART_SEND_BUFFER_SIZE;
+		g_sSerial1Data.sSend.u16BufferLen++;
+	}
+}
+
+
+static void SendHeartBeat(void)
+{
+	uint8_t u8Buffer[HEART_BEAT_RESPOND_SIZE] = {0};
+	
+	u8Buffer[0] = 0x55;
+	u8Buffer[1] = 0xAA;
+	u8Buffer[2] = 0x02;
+	u8Buffer[3] = 0x00;
+	u8Buffer[4] = 0xFF;
+	u8Buffer[5] = 0xFE;
+	u8Buffer[6] = 0xAA;
+	u8Buffer[7] = 0x55;
+	
+	SaveSendByteArray(u8Buffer, HEART_BEAT_RESPOND_SIZE);
+}
+
+
+static void SendMotionFinish(uint8_t u8Index)
+{
+	uint8_t u8Buffer[MOTION_FINISH_RESPOND_SIZE] = {0};
+
+	u8Buffer[0] = 0x55;
+	u8Buffer[1] = 0xAA;
+	u8Buffer[2] = 0x04;
+	u8Buffer[3] = 0x02;
+	u8Buffer[4] = u8Index;
+	u8Buffer[5] = 0x01;
+
+	uint16_t u16CheckSum = 0;
+	// 校验数据
+	for (uint8_t i = 0; i < u8Buffer[3] + 2; i++)
+	{
+		u16CheckSum += u8Buffer[2 + i];
+	}
+	u16CheckSum = ~u16CheckSum + 1;
+
+	u8Buffer[6] = u16CheckSum >> 8;
+	u8Buffer[7] = u16CheckSum & 0xFF;
+
+	u8Buffer[8] = 0xAA;
+	u8Buffer[9] = 0x55;
+
+	SaveSendByteArray(u8Buffer, MOTION_FINISH_RESPOND_SIZE);
+}
+
+
+// 通用应答组帧: 55 AA | cmd | len | data | 校验高 | 校验低 | AA 55
+// 校验 = cmd 起累加取反加一, 与上位机 AddCheckSum 规则一致
+#define RESPOND_FRAME_MAX_SIZE		16
+static void SaveRespondFrame(const uint8_t u8Cmd, const uint8_t *pData, const uint8_t u8DataLen)
+{
+	uint8_t u8Buffer[RESPOND_FRAME_MAX_SIZE] = {0};
+	uint16_t u16CheckSum = 0;
+
+	u8Buffer[0] = 0x55;
+	u8Buffer[1] = 0xAA;
+	u8Buffer[2] = u8Cmd;
+	u8Buffer[3] = u8DataLen;
+
+	if (pData != NULL && u8DataLen > 0)
+	{
+		memcpy(&u8Buffer[4], pData, u8DataLen);
+	}
+
+	for (uint8_t i = 0; i < u8DataLen + 2; i++)
+	{
+		u16CheckSum += u8Buffer[2 + i];
+	}
+	u16CheckSum = ~u16CheckSum + 1;
+
+	u8Buffer[4 + u8DataLen] = u16CheckSum >> 8;
+	u8Buffer[5 + u8DataLen] = u16CheckSum & 0xFF;
+
+	u8Buffer[6 + u8DataLen] = 0xAA;
+	u8Buffer[7 + u8DataLen] = 0x55;
+
+	SaveSendByteArray(u8Buffer, 8 + u8DataLen);
+}
+
+
+// 料仓运动完成反馈: 0x08, 数据 = 索引 + 0x01
+static void SendBinMotionFinish(uint8_t u8Index)
+{
+	uint8_t u8Data[2] = {u8Index, 0x01};
+	SaveRespondFrame(0x08, u8Data, 2);
+}
+
+
+// 料仓停止反馈: 0x0A, 无数据
+static void SendBinMotionStop(void)
+{
+	SaveRespondFrame(0x0A, NULL, 0);
+}
+
+
+// 光源开启反馈: 0x0C, 数据 = 光源索引
+static void SendLightOn(uint8_t u8Index)
+{
+	SaveRespondFrame(0x0C, &u8Index, 1);
+}
+
+
+// 光源关闭反馈: 0x0E, 无数据
+static void SendLightOff(void)
+{
+	SaveRespondFrame(0x0E, NULL, 0);
+}
+
+
+// 发送上位机数据的响应
+void SendSerialRespond(const RespondType eType, void *pParams)
+{
+	switch (eType)
+	{
+		case RESPOND_HEART:
+			SendHeartBeat();
+			break;
+
+		case RESPOND_MOTION_FINISH:
+			SendMotionFinish(*(uint8_t *)pParams);
+			break;
+
+		case RESPOND_MOTION_STOP:
+			// 停止反馈: 0x06, 无数据
+			SaveRespondFrame(0x06, NULL, 0);
+			break;
+
+		case RESPOND_BIN_MOTION_FINISH:
+			SendBinMotionFinish(*(uint8_t *)pParams);
+			break;
+
+		case RESPOND_BIN_MOTION_STOP:
+			SendBinMotionStop();
+			break;
+
+		case RESPOND_LIGHT_ON:
+			SendLightOn(*(uint8_t *)pParams);
+			break;
+
+		case RESPOND_LIGHT_OFF:
+			SendLightOff();
+			break;
+
+		case RESPOND_SAVE_IP:
+			// 保存IP反馈: 0x10, 数据域 1 字节(1=保存成功, 0=保存失败)
+			SaveRespondFrame(0x10, (const uint8_t *)pParams, 1);
+			break;
+
+		case RESPOND_GET_IP:
+			// 获取IP反馈: 0x12, 数据域 4 字节 IP
+			SaveRespondFrame(0x12, (const uint8_t *)pParams, 4);
+			break;
+
+		default:
+			break;
+	}
+}
+
+
+void SendSerialByteArray(SerialDataType *pSerial)
+{
+    enum
+    {
+        WRITE_SERIAL_FUNC = 0,
+		WAIT_TRANSMIT_SUCCESS,
+		WAIT_TIME,
+    };
+    
+    static uint32_t u32WaitTimer = 0;
+    static uint8_t u8SendData[UART_SEND_DATA_LEN] = {0};
+	static uint8_t u8Len = 0;
+
+    switch (pSerial->sSend.u8FSMStep)
+    {
+        case WRITE_SERIAL_FUNC:
+			if (GetSendByteArray(u8SendData, &u8Len))
+			{
+				// 发送数据
+				HAL_UART_Transmit_DMA(pSerial->huart, u8SendData, u8Len);
+				ResetTimerCount(&u32WaitTimer);
+				pSerial->sSend.u8FSMStep = WAIT_TRANSMIT_SUCCESS;
+			}
+            break;
+		
+		case WAIT_TRANSMIT_SUCCESS:
+            // 等待发送完成
+			if (pSerial->sSend.bSendFinish)
+			{
+				ResetTimerCount(&u32WaitTimer);
+				pSerial->sSend.bSendFinish = false;
+				pSerial->sSend.u8FSMStep = WAIT_TIME;
+			}
+			else
+			{
+				if (GetTimerTickDelta(u32WaitTimer, GetCurTimerCount()) >= 2000)
+				{
+					pSerial->sSend.u8FSMStep = WRITE_SERIAL_FUNC;
+				}
+			}
+			break;
+
+        case WAIT_TIME:
+            // 等待串口屏响应
+            if (GetTimerTickDelta(u32WaitTimer, GetCurTimerCount()) >= 100)
+            {
+				memset(u8SendData, 0, sizeof(u8SendData));
+                pSerial->sSend.u8FSMStep = WRITE_SERIAL_FUNC;
+            }
+            break;
+    }	
+}
+
+
+
+void SerialDataHandle(void)
+{
+	UartRecvBufferHandler(&g_sSerial1Data);
+	SendSerialByteArray(&g_sSerial1Data);
+}
+
+
+// ============================ 网络帧解析 ============================
+// 说明: 串口帧在环形缓冲里可能跨末尾回卷, 必须按下标取模读取; 网络帧来自
+// 队列的扁平缓冲, 天然连续。两者数据源不同, 因此运动/光源的解析各写一份
+// 扁平版本, 不复用串口版本, 避免改动已验证的串口解析路径。
+// 帧布局(不含帧头帧尾): pFrame[0]=cmd, [1]=len, [2..]=data, 校验已在
+// Network.c 提取帧时验过, 这里不再重复校验。
+
+// 解析网络运动指令: data = 索引1B + 电压2B + 频率2B + 时间2B + 角度偏移2B + 修正系数2B
+static void ParseNetworkMotionData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
+{
+	pInfoWrite->u8MotionIndex = pFrame[2];
+
+	pInfoWrite->fMotionVoltage = (float)(((uint16_t)pFrame[3] << 8) | pFrame[4]) / 10.0f;
+	pInfoWrite->fMotionFrequency = (float)(((uint16_t)pFrame[5] << 8) | pFrame[6]) / 10.0f;
+	pInfoWrite->fMotionTimeUse = (float)(((uint16_t)pFrame[7] << 8) | pFrame[8]) / 10.0f;
+
+	pInfoWrite->s16AngleOffset = (int16_t)(((uint16_t)pFrame[9] << 8) | pFrame[10]);
+
+	// 与串口解析一致: 2 字节大端, 取低字节语义(协议范围 -50~50)
+	pInfoWrite->s8ModifyCoeff = (int8_t)(int16_t)(((uint16_t)pFrame[11] << 8) | pFrame[12]);
+}
+
+// 解析网络光源开启指令: data = 索引1B + 亮度1B + 保持时间2B(单位100ms)
+static void ParseNetworkLightData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
+{
+	pInfoWrite->u8LightIndex = pFrame[2];
+	pInfoWrite->u8LightBrightness = pFrame[3];
+	pInfoWrite->u16LightKeepTime = (uint16_t)(((uint16_t)pFrame[4] << 8) | pFrame[5]);
+}
+
+
+void SerialHandleNetworkFrame(const uint8_t *pFrame, const uint8_t u8Len)
+{
+	SerialInfo sInfo;
+
+	// 最短合法帧: cmd + len + 校验2B = 4B
+	if (pFrame == NULL || u8Len < 4)
+	{
+		return;
+	}
+
+	memset(&sInfo, 0, sizeof(sInfo));
+
+	switch (pFrame[0])
+	{
+		case 0x01:
+			sInfo.eInfo = INFO_HEART;
+			break;
+
+		case 0x03:
+			sInfo.eInfo = INFO_MOTION;
+			ParseNetworkMotionData(&sInfo, pFrame);
+			break;
+
+		case 0x05:
+			sInfo.eInfo = INFO_STOP_MOTION;
+			break;
+
+		// 料仓指令数据域布局与振动盘一致, 解析复用
+		case 0x07:
+			sInfo.eInfo = INFO_BIN_MOTION;
+			ParseNetworkMotionData(&sInfo, pFrame);
+			break;
+
+		case 0x09:
+			sInfo.eInfo = INFO_STOP_BIN_MOTION;
+			break;
+
+		case 0x0B:
+			sInfo.eInfo = INFO_LIGHT_ON;
+			ParseNetworkLightData(&sInfo, pFrame);
+			break;
+
+		case 0x0D:
+			sInfo.eInfo = INFO_LIGHT_OFF;
+			// 协议 N=0 为关闭全部; 兼容扩展: N>=1 时数据首字节为光源索引
+			if (pFrame[1] >= 1)
+			{
+				sInfo.u8LightIndex = pFrame[2];
+			}
+			break;
+
+		// 保存IP: 数据域固定 4 字节, 长度不符直接丢弃
+		case 0x0F:
+			if (pFrame[1] != 4)
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_IP;
+			sInfo.u8Ip[0] = pFrame[2];
+			sInfo.u8Ip[1] = pFrame[3];
+			sInfo.u8Ip[2] = pFrame[4];
+			sInfo.u8Ip[3] = pFrame[5];
+			break;
+
+		// 获取IP: 数据域 1 字节(固定 0x01), 本机无需使用其内容
+		case 0x11:
+			sInfo.eInfo = INFO_GET_IP;
+			break;
+
+		default:
+			return;
+	}
+
+	SendRecvParseInfoToBuffer(&sInfo);
+}

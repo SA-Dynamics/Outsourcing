@@ -1,0 +1,48 @@
+#ifndef MOTORCONTROL_H
+#define MOTORCONTROL_H
+
+#include "main.h"
+
+#define DEFAULT_VOLTAGE_VALUE		10.0f
+#define MOTION_INFO_BUFFER_SIZE		16
+
+typedef enum
+{
+	MOTION_NONE = 0,
+	MOTION_UP,
+	MOTION_DOWN,
+	MOTION_LEFT,
+	MOTION_RIGHT,
+	MOTION_GATHER,
+	MOTION_H_GATHER,
+	MOTION_V_GATHER,
+	MOTION_DISPERSE,
+	MOTION_FLIP,
+}MotionIndex;
+
+
+typedef struct
+{
+	MotionIndex eMotionIndex;
+	float fVoltage;
+	float fFrequency;
+	float fTimeUse;
+	int16_t s16AngleOffset;
+	int8_t s8ModifyCoeff;
+}MotorMotionParams;
+
+// weak, 回调由外部实现
+void CbMotionFinish(const uint8_t u8Index);
+void CbMotionStopFinish(void);
+
+void SendMotorInfo(MotorMotionParams *pParams);
+void SetNormal(const bool bNormal);
+void MotionControlInit(void);
+void MotorControl(void);
+void MotorControlStop(void);
+
+
+void StartBinMotion(void);
+void StopBinMotion(void);
+
+#endif
