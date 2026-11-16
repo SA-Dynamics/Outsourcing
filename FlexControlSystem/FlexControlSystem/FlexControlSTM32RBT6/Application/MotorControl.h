@@ -40,6 +40,8 @@ void SetNormal(const bool bNormal);
 void MotionControlInit(void);
 void MotorControl(void);
 void MotorControlStop(void);
+// 包含排队及正在执行的运动, 只读查询, 不改变控制状态。
+bool MotorControlIsBusy(void);
 
 
 void StartBinMotion(void);

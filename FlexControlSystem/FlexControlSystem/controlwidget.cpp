@@ -311,6 +311,12 @@ ControlWidget::ControlWidget(QWidget *parent)
     connect(m_pGetIpUdpTimer, &QTimer::timeout,
             this, &ControlWidget::OnUdpGetIpTimeout);
 
+    // 电压周期查询: 2s 一次, 连接成功后启动; 初始显示占位
+    m_pVoltageTimer = new QTimer(this);
+    m_pVoltageTimer->setInterval(2000);
+    connect(m_pVoltageTimer, &QTimer::timeout,
+            this, &ControlWidget::OnVoltageQueryTick);
+    ui->leVoltage->setText("--");
     // 控制面板实例化, 一个用于配置, 一个用于控制
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
@@ -454,6 +460,13 @@ void ControlWidget::OnConnectiveState(const bool &bState)
         }
 
         ui->tabControl->setEnabled(true);
+
+        // 连接成功: 启动电压周期查询(2s 一次), 立即先发一帧
+        if (m_pVoltageTimer != nullptr)
+        {
+            m_pVoltageTimer->start();
+            OnVoltageQueryTick();
+        }
     }
     else
     {
@@ -486,6 +499,13 @@ void ControlWidget::OnConnectiveState(const bool &bState)
 void ControlWidget::CloseConnection(void)
 {
     ui->tabControl->setEnabled(false);
+
+    // 断连后停止电压周期查询并恢复占位, 避免残留旧读数误导
+    if (m_pVoltageTimer != nullptr)
+    {
+        m_pVoltageTimer->stop();
+    }
+    ui->leVoltage->setText("--");
 
     // 保存IP 期间断连(心跳丢失/用户断开): 事务作废并恢复按钮,
     // 否则按钮会一直停在禁用态, 后续再也点不了
@@ -556,11 +576,17 @@ void ControlWidget::SetConnectSlot(const bool bSet)
         connect(m_pControlWidget, SIGNAL(sigLightOn(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendLightOnCommand(QByteArray, QByteArray)));
         connect(m_pControlWidget, SIGNAL(sigLightOff(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendLightOffCommand(QByteArray, QByteArray)));
 
+        // 光源保持时间到: 下位机自发关闭完成帧, 复位对应路光源按钮
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigLightOffFinish,
+                m_pControlWidget, &ControlPanel::OnLightOffFinish);
+
         // 保存IP 的结果(成功/失败/超时)由工作线程回传
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigSaveIpResult,
                 this, &ControlWidget::OnSaveIpResult);
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigGetIpResult,
                 this, &ControlWidget::OnGetIpResult);
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigGetVoltageResult,
+                this, &ControlWidget::OnVoltageResult);
 
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigHeartBeatUnnormal, this, [this]() {
             OnConnectiveUnnormal("HeartBeat");
@@ -585,6 +611,8 @@ void ControlWidget::SetConnectSlot(const bool bSet)
     {
         disconnect(m_ConnectiveHandler, SIGNAL(sigConnectiveState(bool)), this, SLOT(OnConnectiveState(bool)));
         disconnect(m_pControlWidget, SIGNAL(sigMotion(QByteArray, QByteArray)), m_ConnectiveHandler, SLOT(SendMotionCommand(QByteArray, QByteArray)));
+        disconnect(m_ConnectiveHandler, &ConnectiveHandle::sigLightOffFinish,
+                   m_pControlWidget, &ControlPanel::OnLightOffFinish);
     }
 }
 
@@ -1143,4 +1171,25 @@ void ControlWidget::OnUdpGetIpTimeout()
                          "2. 上位机与下位机在同一网段（跨网段的广播到不了）；\n"
                          "3. 防火墙已放行本程序（首次使用会弹授权框，\n"
                          "   被静默拦截时现象就是收不到应答）。");
+}
+
+
+// 电压周期查询: 每 2s 投递一帧 0x13 到通信线程; 断连后定时器已停, 双重保护
+void ControlWidget::OnVoltageQueryTick()
+{
+    if (m_ConnectiveHandler == nullptr || m_pConnectiveThread == nullptr ||
+            m_eConnectObject == ConnectObject::ObjectNone)
+    {
+        return;
+    }
+
+    QMetaObject::invokeMethod(m_ConnectiveHandler, "SendGetVoltageCommand",
+                              Qt::QueuedConnection);
+}
+
+
+// 电压应答: 下位机换算系数已含在值里, 这里只除 10 显示一位小数
+void ControlWidget::OnVoltageResult(const quint16 &u16VoltX10)
+{
+    ui->leVoltage->setText(QString::number(u16VoltX10 / 10.0, 'f', 1));
 }

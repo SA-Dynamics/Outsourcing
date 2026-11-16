@@ -26,6 +26,8 @@ void SendBinInfo(BinMotionParams *pParams);
 void BinControlInit(void);
 void BinControl(void);
 void BinControlStop(void);
+// 排队或正在执行料仓指令时为 true, 包含指令内的等待阶段。
+bool BinControlIsBusy(void);
 
 // PWM 脉冲完成回调(16kHz): 由 MotorControl.c 的 HAL_TIM_PWM_PulseFinishedCallback 转发
 void BinPwmPulseCallback(TIM_HandleTypeDef *htim);

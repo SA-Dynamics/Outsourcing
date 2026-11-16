@@ -46,6 +46,10 @@ public slots:
     // 结果通过 sigGetIpResult 回传(成功为 "x.x.x.x", 空串=超时)
     void SendGetIpCommand(void);
 
+    // 获取电压: 无参数, 应答由引擎按命令码 0x14 单独匹配
+    // 结果通过 sigGetVoltageResult 回传(电压x10, 原始整型; 超时静默不上报)
+    void SendGetVoltageCommand(void);
+
     // 线程收尾: 在对象所属线程内停止全部定时器并关闭底层通道
     // 由 QThread::finished 直接触发(同线程直连执行), 避免跨线程 killTimer 警告
     void Shutdown(void);
@@ -57,6 +61,8 @@ signals:
     void sigMotionRespondUnnormal();
     void sigBinMotionRespondUnnormal();
     void sigLightRespondUnnormal();
+    // 光源关闭完成(含保持时间到的自发帧): u8Index 1~4 对应 A~D, 0=全关
+    void sigLightOffFinish(const uint8_t &u8Index);
     void sigMotionTerminate();
 
     // 保存IP结果: 1=下位机写入成功, 0=下位机写入失败, -1=应答超时
@@ -65,6 +71,9 @@ signals:
 
     // 获取IP结果: 成功为点分十进制字符串, 空串=应答超时
     void sigGetIpResult(const QString &qstrIp);
+
+    // 获取电压结果: 电压x10 原始整型(如 241 = 24.1V), 由界面自行换算显示
+    void sigGetVoltageResult(const quint16 &u16VoltX10);
 
 protected:
     // 打开连接(串口/TCP), 成功返回 true, 失败返回 false
@@ -106,7 +115,8 @@ private:
     };
 
     enum class SendCmdType { HeartBeat, MotionCmd, StopMotion,
-                             BinMotion, BinStopMotion, LightOn, LightOff, SaveIp, GetIp };
+                             BinMotion, BinStopMotion, LightOn, LightOff, SaveIp, GetIp,
+                             GetVoltage };
 
     struct SendCmdStruct
     {
@@ -137,6 +147,10 @@ private:
     // 获取IP 应答里解析出来的 IP 字符串, 由接收匹配写入、
     // 引擎在收到应答后随 sigGetIpResult 一起发出
     QString m_qstrGetIpValue;
+
+    // 获取电压 应答里解析出来的 电压x10 整型, 由接收匹配写入、
+    // 引擎在收到应答后随 sigGetVoltageResult 一起发出
+    quint16 m_u16VoltageX10 = 0;
 };
 
 #endif // CONNECTIVEHANDLE_H

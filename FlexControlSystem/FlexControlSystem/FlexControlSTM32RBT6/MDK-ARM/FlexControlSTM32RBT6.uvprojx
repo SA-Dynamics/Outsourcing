@@ -429,6 +429,11 @@
               <FilePath>..\Application\SaveParams.c</FilePath>
             </File>
             <File>
+              <FileName>PowerMonitor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Application\PowerMonitor.c</FilePath>
+            </File>
+            <File>
               <FileName>SerialHandle.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Application\SerialHandle.c</FilePath>

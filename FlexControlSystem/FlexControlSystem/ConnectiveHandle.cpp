@@ -19,6 +19,8 @@
 #define SAVE_IP_TIMEOUT_MS          3000
 // 获取IP 应答超时 ms: 纯查询操作, 下位机组帧即回, 2s 足够
 #define GET_IP_TIMEOUT_MS           2000
+// 获取电压 应答超时 ms: 同为纯查询, 2s 足够; 周期轮询下超时静默清队列
+#define GET_VOLTAGE_TIMEOUT_MS      2000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
 
@@ -40,6 +42,7 @@ ConnectiveHandle::ConnectiveHandle(QObject *parent)
         {SendCmdType::LightOff, {}},
         {SendCmdType::SaveIp, {}},
         {SendCmdType::GetIp, {}},
+        {SendCmdType::GetVoltage, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
@@ -309,6 +312,35 @@ void ConnectiveHandle::SendGetIpCommand(void)
 }
 
 
+// 获取电压: 应答 0x14 按命令码匹配, 与获取IP同构; 周期轮询下超时静默不上报
+void ConnectiveHandle::SendGetVoltageCommand(void)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    // 上一拍尚未应答则跳过(2s 周期 > 2s 超时, 正常不会堆积)
+    if (!m_qmapSendBuffer[SendCmdType::GetVoltage].isEmpty())
+    {
+        return;
+    }
+
+    QByteArray qbtCmd;
+    m_pProtocol->GetVoltageProtocol(qbtCmd);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtCmd;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = GET_VOLTAGE_TIMEOUT_MS;
+
+    m_qmapSendBuffer[SendCmdType::GetVoltage].append(sSendStruct);
+}
+
+
 // ============================ 引擎: 发送/应答/超时 ============================
 void ConnectiveHandle::OnEngineTick(void)
 {
@@ -571,6 +603,33 @@ void ConnectiveHandle::OnEngineTick(void)
             emit sigGetIpResult(QString());
         }
     }
+
+    // ---- 获取电压(应答 0x14, 电压x10 由接收匹配写入 m_u16VoltageX10) ----
+    QVector<SendCmdStruct> &sGetVoltage = m_qmapSendBuffer[SendCmdType::GetVoltage];
+    if (!sGetVoltage.isEmpty())
+    {
+        SendCmdStruct &sItem = sGetVoltage.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sGetVoltage.removeFirst();
+            emit sigGetVoltageResult(m_u16VoltageX10);
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 周期轮询场景: 超时静默清队列, 下一周期重发, 不打扰界面
+            qDebug() << "get voltage respond timeout";
+            sGetVoltage.clear();
+        }
+    }
 }
 
 
@@ -643,10 +702,45 @@ void ConnectiveHandle::RecvMessageHandle(void)
     {
         m_qmapSendBuffer[SendCmdType::LightOn].first().bRespond = true;
     }
-    else if (!m_qmapSendBuffer[SendCmdType::LightOff].isEmpty() &&
-             qbtFrame == m_qmapSendBuffer[SendCmdType::LightOff].first().qbtRespond)
+    // 光源关闭完成(0x0E): 保持时间到时下位机也会自发该帧(带索引, 0=全关),
+    // 无论是否对应队列指令, 都先发 sigLightOffFinish 让界面复位对应路按钮;
+    // 该帧不做入队期望帧的整帧比对, 而是按下方兼容规则匹配队列
+    else if (qbtFrame.size() >= 8 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_LIGHT_OFF_RESPOND)
     {
-        m_qmapSendBuffer[SendCmdType::LightOff].first().bRespond = true;
+        const uint8_t u8Len = static_cast<uint8_t>(qbtFrame.at(3));
+        // 无数据域(长度不为 1)按全关 0 处理
+        const uint8_t u8Idx = (u8Len == 1) ? static_cast<uint8_t>(qbtFrame.at(4))
+                                           : GeneralProtocolItems::u8SW_LIGHT_INDEX_ALL;
+
+        emit sigLightOffFinish(u8Idx);
+
+        QVector<SendCmdStruct> &sLightOff = m_qmapSendBuffer[SendCmdType::LightOff];
+        if (!sLightOff.isEmpty())
+        {
+            const QByteArray &qbtExpect = sLightOff.first().qbtRespond;
+            const uint8_t u8ExpectLen = static_cast<uint8_t>(qbtExpect.at(3));
+
+            // 兼容匹配: 期望帧为全关(len 0)时任何 0x0E 完成帧均可收(到时自发的也算完成);
+            // 期望帧带索引(len 1)时仅索引相同的完成帧可收
+            bool bMatch = false;
+            if (u8ExpectLen == 0)
+            {
+                bMatch = true;
+            }
+            else if (u8ExpectLen == 1)
+            {
+                QByteArray qbtExpectIdx;
+                GeneralProtocol::getInstance().LightOffFinishExpect(
+                            static_cast<uint8_t>(qbtExpect.at(4)), qbtExpectIdx);
+                bMatch = (qbtFrame == qbtExpectIdx);
+            }
+
+            if (bMatch)
+            {
+                sLightOff.first().bRespond = true;
+            }
+        }
     }
     // 保存IP: 应答帧有两种(1=成功/0=失败), 无法整帧比对, 按命令码 + 数据域识别
     else if (!m_qmapSendBuffer[SendCmdType::SaveIp].isEmpty() &&
@@ -669,6 +763,17 @@ void ConnectiveHandle::RecvMessageHandle(void)
                 .arg(static_cast<uint8_t>(qbtFrame.at(6)))
                 .arg(static_cast<uint8_t>(qbtFrame.at(7)));
         m_qmapSendBuffer[SendCmdType::GetIp].first().bRespond = true;
+    }
+    // 获取电压: 应答 0x14 数据域 2 字节 电压x10(大端), 按命令码+长度识别
+    else if (!m_qmapSendBuffer[SendCmdType::GetVoltage].isEmpty() &&
+             qbtFrame.size() >= 8 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_GET_VOLTAGE_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == 2)
+    {
+        m_u16VoltageX10 = static_cast<quint16>(
+                    (static_cast<uint8_t>(qbtFrame.at(4)) << 8) |
+                     static_cast<uint8_t>(qbtFrame.at(5)));
+        m_qmapSendBuffer[SendCmdType::GetVoltage].first().bRespond = true;
     }
 
     qDebug() << "remove recv info" << qbtFrame;

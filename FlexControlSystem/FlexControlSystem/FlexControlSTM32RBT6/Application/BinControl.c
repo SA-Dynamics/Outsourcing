@@ -472,6 +472,11 @@ void BinControlStop(void)
 }
 
 
+bool BinControlIsBusy(void)
+{
+	return (g_sBinInfoBuffer.u8BufferLen != 0u) || (g_eBinStep == BIN_STEP_HANDLE);
+}
+
 void BinControl(void)
 {
 	static BinMotionParams sParams;

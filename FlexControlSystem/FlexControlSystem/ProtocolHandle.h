@@ -69,7 +69,7 @@ public:
     { Q_UNUSED(u8Index); Q_UNUSED(u8Brightness); Q_UNUSED(u16KeepTime);
       Q_UNUSED(qbtSendCmd); Q_UNUSED(qbtRespond); }
 
-    // 关闭光源(0x0D/0x0E): u8Index = 1/2 只关指定光源, 0 关闭全部
+    // 关闭光源(0x0D/0x0E): u8Index = 1/2/3/4 只关 A/B/C/D, 0 关闭全部
     // 应答 0x0E 无数据域, 关哪一路都是同一帧
     virtual void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond)
     { Q_UNUSED(u8Index); Q_UNUSED(qbtCmd); Q_UNUSED(qbtRespond); }
@@ -83,6 +83,11 @@ public:
     // 获取IP(0x11/0x12): 下发 1 字节 0x01, 应答 4 字节 IP(数据域为变长值,
     // 无法预构造期望帧), 应答由 ConnectiveHandle 按命令码 0x12 匹配
     virtual void GetIpProtocol(QByteArray &qbtCmd)
+    { Q_UNUSED(qbtCmd); }
+
+    // 获取电压(0x13/0x14): 下发 1 字节 0x01, 应答 2 字节 电压x10(大端),
+    // 应答由 ConnectiveHandle 按命令码 0x14 匹配
+    virtual void GetVoltageProtocol(QByteArray &qbtCmd)
     { Q_UNUSED(qbtCmd); }
 };
 

@@ -41,9 +41,15 @@ namespace GeneralProtocolItems
     constexpr uint8_t u8SW_GET_IP_CMD = 0x11;
     constexpr uint8_t u8FW_GET_IP_RESPOND = 0x12;
 
+    // 获取电压: 下发 1 字节 0x01, 应答 2 字节 电压x10(大端)
+    constexpr uint8_t u8SW_GET_VOLTAGE_CMD = 0x13;
+    constexpr uint8_t u8FW_GET_VOLTAGE_RESPOND = 0x14;
+
     // 光源索引
     constexpr uint8_t u8SW_LIGHT_INDEX_A = 0x01;
     constexpr uint8_t u8SW_LIGHT_INDEX_B = 0x02;
+    constexpr uint8_t u8SW_LIGHT_INDEX_C = 0x03;
+    constexpr uint8_t u8SW_LIGHT_INDEX_D = 0x04;
     constexpr uint8_t u8SW_LIGHT_INDEX_ALL = 0x00;      // 仅关闭光源使用: 关闭全部
 
     constexpr uint8_t u8SW_MOTION_UP = 0x01;
@@ -90,9 +96,16 @@ public:
 
     void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond) override;
 
+    // 光源关闭完成期望帧(0x0E + 1 字节索引): 保持时间到时下位机自发该帧,
+    // 引擎用它生成期望帧做队列匹配
+    void LightOffFinishExpect(const uint8_t u8Index, QByteArray &qbtRespond);
+
     void SaveIpProtocol(const QByteArray &qbtIp, QByteArray &qbtCmd) override;
 
     void GetIpProtocol(QByteArray &qbtCmd) override;
+
+    // 获取电压: 应答由引擎按命令码 0x14 单独匹配, 不走整帧比对
+    void GetVoltageProtocol(QByteArray &qbtCmd) override;
 
 private:
     GeneralProtocol() = default;

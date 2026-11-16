@@ -98,6 +98,9 @@ bool NetworkInit(const NetworkHwConfig_t *pHw);
  */
 void NetworkHandle(void);
 
+/** 主循环收到 TCP/UDP 数据时的可选活动通知, 默认 weak 空实现。 */
+void CbNetworkReceiveActivity(void);
+
 /**
  * @brief  取出一帧完整数据(不含帧头帧尾, 含 cmd/len/data/chk)
  * @param  pBuf 输出缓冲, 不小于 NETWORK_FRAME_DATA_LEN

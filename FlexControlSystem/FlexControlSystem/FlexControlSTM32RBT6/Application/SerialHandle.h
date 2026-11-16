@@ -22,6 +22,7 @@ typedef enum
 	INFO_LIGHT_OFF,
 	INFO_SAVE_IP,			// 保存 IP 到 Flash(上位机下发新 IP, 下位机重启后生效)
 	INFO_GET_IP,			// 获取当前 IP(无数据, 应答 0x12 带 4 字节 IP)
+	INFO_GET_VOLTAGE,		// 获取电压(无数据, 应答 0x14 带 2 字节 电压x10)
 }InfoType;
 
 typedef enum
@@ -36,6 +37,7 @@ typedef enum
 	RESPOND_LIGHT_OFF,
 	RESPOND_SAVE_IP,		// 参数为 uint8_t*: 1=保存成功, 0=失败
 	RESPOND_GET_IP,			// 参数为 uint8_t[4]: 当前运行的 IP
+	RESPOND_GET_VOLTAGE,	// 参数为 uint16_t*: 电压x10(如 241 = 24.1V)
 }RespondType;
 
 
@@ -50,7 +52,7 @@ typedef struct
 	int16_t s16AngleOffset;
 	int8_t s8ModifyCoeff;
 	// 光源参数
-	uint8_t u8LightIndex;			// 1=A光源, 2=B光源
+	uint8_t u8LightIndex;			// 1=A, 2=B, 3=C, 4=D; 0仅用于关闭全部
 	uint8_t u8LightBrightness;		// 0~100
 	uint16_t u16LightKeepTime;		// 保持时间, 单位 100ms(协议中为秒数x10)
 	// 保存IP参数(0x0F): 4 字节新 IP
@@ -63,6 +65,8 @@ void SerialHandleInit(void);
 void SendSerialRespond(const RespondType eType, void *pParams);
 bool GetSerialInfo(SerialInfo *pInfo);
 void SerialDataHandle(void);
+// 主循环观察到 UART 新数据时调用, weak 实现由应用层覆盖, 不在中断内操作LED。
+void CbSerialReceiveActivity(void);
 
 // 网络帧解析入口: 帧布局与串口一致, 不含帧头帧尾: [cmd][len][data...][chkH][chkL]
 // 校验已由网络层(Network.c)完成, 这里只做命令解析, 结果进与串口相同的

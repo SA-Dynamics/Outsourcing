@@ -228,6 +228,10 @@ static bool ExtractFrameFromRecv(void)
 }
 
 
+__weak void CbNetworkReceiveActivity(void)
+{
+}
+
 /* 从 W5500 拉取数据并提取帧 */
 static void NetworkRecvHandler(void)
 {
@@ -235,6 +239,11 @@ static void NetworkRecvHandler(void)
 
 	/* 有中断标志或轮询到数据, 都拉取一次 */
 	int32_t s32Len = W5500_SocketRecv(NETWORK_SOCKET_INDEX, u8Temp, sizeof(u8Temp));
+
+	if (s32Len > 0)
+	{
+		CbNetworkReceiveActivity();
+	}
 
 	/* 将收到的数据放入环形缓冲 */
 	for (int32_t i = 0; i < s32Len; i++)
@@ -616,6 +625,8 @@ static void NetworkDiscoveryHandle(void)
 	{
 		return;
 	}
+
+	CbNetworkReceiveActivity();
 
 	/* 帧不对(杂散广播/别的设备)直接丢弃, 不应答 */
 	if (!DiscoveryRequestValid(u8Buf, (uint8_t)s32Len))

@@ -325,8 +325,8 @@ void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Bri
 }
 
 
-// 关闭光源(0x0D/0x0E): u8Index = 1/2 只关指定光源, 0 关闭全部
-// 两路光源独立控制, 所以关 A 必须能带上索引, 否则会连带把 B 一起关掉
+// 关闭光源(0x0D/0x0E): u8Index = 1/2/3/4 只关 A/B/C/D, 0 关闭全部
+// 各路光源独立控制, 关闭指定路时必须带上索引
 void GeneralProtocol::LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond)
 {
     // 上位机发送
@@ -365,6 +365,43 @@ void GeneralProtocol::LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd
 
     qbtRespond.append(u8FRAME_TAIL1);
     qbtRespond.append(u8FRAME_TAIL2);
+}
+
+
+// 光源关闭完成期望帧(0x0E): 55 AA 0E 01 idx chkH chkL AA 55
+// 下位机保持时间到熄灯时自发该帧(带回索引), 由 ConnectiveHandle 用于匹配
+void GeneralProtocol::LightOffFinishExpect(const uint8_t u8Index, QByteArray &qbtRespond)
+{
+    qbtRespond.append(u8FRAME_HEAD1);
+    qbtRespond.append(u8FRAME_HEAD2);
+
+    qbtRespond.append(u8FW_LIGHT_OFF_RESPOND);
+    qbtRespond.append(uint8_t(1));
+    qbtRespond.append(u8Index);
+
+    AddCheckSum(qbtRespond);
+
+    qbtRespond.append(u8FRAME_TAIL1);
+    qbtRespond.append(u8FRAME_TAIL2);
+}
+
+
+// 获取电压(0x13): 数据域 1 字节 0x01; 下位机回 0x14 + 2 字节 电压x10(大端)
+void GeneralProtocol::GetVoltageProtocol(QByteArray &qbtCmd)
+{
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_GET_VOLTAGE_CMD);
+    qbtCmd.append(uint8_t(1));
+    qbtCmd.append(uint8_t(0x01));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "get voltage cmd:" << qbtCmd.toHex();
 }
 
 

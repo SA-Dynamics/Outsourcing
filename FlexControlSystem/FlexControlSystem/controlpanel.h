@@ -98,6 +98,9 @@ public slots:
     void OnMotionGroupButtonClicked(QAbstractButton *pButton);
     void OnMotionFinished(void);
 
+    // 光源保持时间到: 下位机自发 0x0E 完成帧, 恢复对应路(0=全关)的按钮状态
+    void OnLightOffFinish(const uint8_t &u8Index);
+
 signals:
     void sigMotion(const QByteArray &qbtData, const QByteArray &qbtRespond);
     void sigStopMotion();
@@ -127,6 +130,10 @@ private slots:
     void on_pbCloseLightA_clicked();
     void on_pbOpenLightB_clicked();
     void on_pbCloseLihgtB_clicked();
+    void on_pbOpenLightC_clicked();
+    void on_pbCloseLightC_clicked();
+    void on_pbOpenLightD_clicked();
+    void on_pbCloseLightD_clicked();
 };
 
 #endif // CONTROLPANEL_H

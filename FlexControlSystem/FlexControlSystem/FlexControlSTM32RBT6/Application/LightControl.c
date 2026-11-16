@@ -4,26 +4,34 @@
 #include "tim.h"
 
 /*
- * 硬件映射(CubeMX 已配置 TIM3: PSC=0, ARR=4499, CH1~CH4 全为 PWM 输出)
- *   光源A(LIGHT1) -> TIM3_CH3 -> PB0
- *   光源B(LIGHT2) -> TIM3_CH4 -> PB1
- *   料仓(CH1/CH2, PA6/PA7)与光源共用 TIM3, 各自占独立比较通道, 互不影响。
+ * 硬件映射(定时器参数由 CubeMX 配置, 本模块不修改 PSC/ARR)
+ *   光源A(LIGHT1) -> TIM3_CH3 -> PC8
+ *   光源B(LIGHT2) -> TIM3_CH4 -> PC9
+ *   光源C(LIGHT3) -> TIM1_CH1 -> PA8
+ *   光源D(LIGHT4) -> TIM1_CH4 -> PA11
+ *   TIM3 当前 ARR=65535, TIM1 当前 ARR=4499; TIM3_CH1/CH2 为料仓使用。
  *
- * 亮度 0~100 线性折算为比较值: CCR = 亮度 x (ARR+1) / 100 = 亮度 x 45
- *   0   -> CCR=0    -> 恒低, 熄灭
- *   100 -> CCR=4500 -> 大于 ARR(4499), 恒高, 满占空比
+ * 亮度 0~100 按各定时器实时 ARR 折算: CCR = 亮度 x (ARR+1) / 100。
+ *   0 -> CCR=0, 恒低; ARR<65535 时, 100% 可写 CCR=ARR+1, 恒高。
+ *   TIM1/TIM3 为 16 位定时器, ARR=65535 时 CCR 上限为 65535,
+ *   不能写 65536(会截断为 0); 此时 100% 为每周期一 tick 低电平的近满占空比。
  */
 
-#define LIGHT_CHANNEL_NUM			2
+#define LIGHT_CHANNEL_NUM			4
 
-// TIM3 一个 PWM 周期的计数值 = ARR + 1
-#define LIGHT_PWM_PERIOD_TICKS		(4499U + 1U)
-
-// 索引 1/2 -> 比较通道
-static const uint32_t g_au32LightChannel[LIGHT_CHANNEL_NUM] =
+typedef struct
 {
-	TIM_CHANNEL_3,		// 光源A
-	TIM_CHANNEL_4,		// 光源B
+	TIM_HandleTypeDef *pTimer;
+	uint32_t u32Channel;
+}LightHardware;
+
+// 索引 1/2/3/4 -> 定时器及比较通道
+static const LightHardware g_sLightHardware[LIGHT_CHANNEL_NUM] =
+{
+	{&htim3, TIM_CHANNEL_3},		// 光源A
+	{&htim3, TIM_CHANNEL_4},		// 光源B
+	{&htim1, TIM_CHANNEL_1},		// 光源C
+	{&htim1, TIM_CHANNEL_4},		// 光源D
 };
 
 
@@ -113,7 +121,7 @@ static void RemoveLightInfo(const uint8_t u8Index)
 }
 
 
-// 索引(1/2) -> 通道下标(0/1), 非法索引返回 -1
+// 索引(1/2/3/4) -> 通道下标(0/1/2/3), 非法索引返回 -1
 static int8_t LightSlotOf(const uint8_t u8Index)
 {
 	if (u8Index == LIGHT_INDEX_A)
@@ -126,24 +134,43 @@ static int8_t LightSlotOf(const uint8_t u8Index)
 		return 1;
 	}
 
+	if (u8Index == LIGHT_INDEX_C)
+	{
+		return 2;
+	}
+
+	if (u8Index == LIGHT_INDEX_D)
+	{
+		return 3;
+	}
+
 	return -1;
 }
 
 
 // 设置某路亮度: 只改比较值, 不动计数器
-// 注意: 这里不能用 HAL_TIM_PWM_Stop —— 它会关掉整个 TIM3 的计数器,
-//       而 TIM3 的 CH1/CH2 是料仓在用的, 会把料仓的 PWM 一起停掉。
+// 不调用 PWM_Stop/Base_Stop, 避免影响共用定时器的其他通道(如 TIM3 料仓)。
 static void LightSetDuty(const uint8_t u8Slot, const uint8_t u8Brightness)
 {
+	const LightHardware *pHardware = &g_sLightHardware[u8Slot];
 	uint32_t u32Bright = u8Brightness;
+	uint32_t u32AutoReload = __HAL_TIM_GET_AUTORELOAD(pHardware->pTimer);
+	uint32_t u32Compare;
 
 	if (u32Bright > LIGHT_BRIGHTNESS_MAX)
 	{
 		u32Bright = LIGHT_BRIGHTNESS_MAX;
 	}
 
-	__HAL_TIM_SET_COMPARE(&htim3, g_au32LightChannel[u8Slot],
-						  u32Bright * LIGHT_PWM_PERIOD_TICKS / LIGHT_BRIGHTNESS_MAX);
+	u32Compare = u32Bright * (u32AutoReload + 1U) / LIGHT_BRIGHTNESS_MAX;
+
+	// 16 位 CCR 不能写 65536; ARR=65535 时保留一 tick 低电平, 避免满亮变熄灭。
+	if (u32Compare > 65535U)
+	{
+		u32Compare = 65535U;
+	}
+
+	__HAL_TIM_SET_COMPARE(pHardware->pTimer, pHardware->u32Channel, u32Compare);
 }
 
 
@@ -163,7 +190,7 @@ static void LightTurnOn(const uint8_t u8Slot, const uint8_t u8Brightness, const 
 }
 
 
-// 熄灭某一路: 只把该路比较值清 0(输出恒低), 另一路不受任何影响
+// 熄灭某一路: 只把该路比较值清 0(输出恒低), 其他路不受任何影响
 static void LightTurnOff(const uint8_t u8Slot)
 {
 	g_asLightChannel[u8Slot].bOn = false;
@@ -195,18 +222,40 @@ void LightControlInit(void)
 		g_asLightChannel[u8Slot].u16KeepTime = 0;
 		g_asLightChannel[u8Slot].u32TimerCount = 0;
 
-		// 两路都从"熄灭"开始(CCR=0)
+		// 四路都从"熄灭"开始(CCR=0)
 		LightSetDuty(u8Slot, 0);
 
-		// 只启动一次通道, 之后开关灯全部靠改 CCR, 不反复启停
-		(void)HAL_TIM_PWM_Start(&htim3, g_au32LightChannel[u8Slot]);
+		// 仅初始化时启动四路通道, 之后开关灯全部靠改 CCR, 不反复启停
+		(void)HAL_TIM_PWM_Start(g_sLightHardware[u8Slot].pTimer, g_sLightHardware[u8Slot].u32Channel);
 	}
 
 	ClearLightInfo();
 }
 
 
-// 关闭光源: u8Index = 1/2 只关指定路; LIGHT_INDEX_ALL 关全部
+bool LightControlIsBusy(void)
+{
+	uint8_t u8Slot;
+
+	if (g_sLightInfoBuffer.u8BufferLen != 0)
+	{
+		return true;
+	}
+
+	for (u8Slot = 0; u8Slot < LIGHT_CHANNEL_NUM; u8Slot++)
+	{
+		// 以指令保持状态为准, 亮度为 0 或常亮也仍然占用。
+		if (g_asLightChannel[u8Slot].bOn)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// 关闭光源: u8Index = 1/2/3/4 只关指定路; LIGHT_INDEX_ALL 关全部
 void LightControlStop(const uint8_t u8Index)
 {
 	uint8_t u8Slot;

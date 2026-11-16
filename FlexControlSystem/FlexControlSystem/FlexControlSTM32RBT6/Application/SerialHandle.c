@@ -16,7 +16,9 @@ typedef struct
 		uint16_t u16WriteIndex;
 		uint16_t u16ReadIndex;
 		uint16_t u16DataIndex;
-		bool bRecvFinish;
+		volatile bool bRecvFinish;		// IDLE ISR 写入, 主循环读取
+		volatile bool bRecvActivity;	// 现有DMA半满/全满回调记录活动, 不直接操作LED
+		uint16_t u16ActivityIndex;	// 主循环上次观察到的DMA写入位置
 		uint8_t u8FSMStep;
 		
 		DMA_HandleTypeDef *hdma;
@@ -54,6 +56,10 @@ struct
 }g_sParseData;
 
 
+__weak void CbSerialReceiveActivity(void)
+{
+}
+
 // 检测空闲中断
 void CbUartIdleHandler(UART_HandleTypeDef *huart)
 {
@@ -63,6 +69,24 @@ void CbUartIdleHandler(UART_HandleTypeDef *huart)
 	}	
 }
 
+
+void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart1)
+	{
+		g_sSerial1Data.sRecv.bRecvActivity = true;
+		g_sSerial1Data.sRecv.bRecvFinish = true;
+	}
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart == &huart1)
+	{
+		g_sSerial1Data.sRecv.bRecvActivity = true;
+		g_sSerial1Data.sRecv.bRecvFinish = true;
+	}
+}
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -220,6 +244,11 @@ void ParseUartData(SerialDataType *pSerial)
 			sInfo.eInfo = INFO_GET_IP;
 			break;
 
+		// 获取电压: 数据域 1 字节(固定 0x01), 应答 0x14 带 2 字节 电压x10
+		case 0x13:
+			sInfo.eInfo = INFO_GET_VOLTAGE;
+			break;
+
 		default:
 			return;
 	}
@@ -272,7 +301,7 @@ static void UartRecvBufferHandler(SerialDataType *pSerial)
 			// 计算接收了多少个数据
 			uint16_t u16Diff = (pSerial->sRecv.u16WriteIndex >= pSerial->sRecv.u16ReadIndex) ? 
 				(pSerial->sRecv.u16WriteIndex - pSerial->sRecv.u16ReadIndex) : 
-				(0XFFFF - pSerial->sRecv.u16ReadIndex + pSerial->sRecv.u16WriteIndex + 1);
+				(UART_RECV_DATA_BUFFER_SIZE - pSerial->sRecv.u16ReadIndex + pSerial->sRecv.u16WriteIndex);
             
 			// 判断是否需要查找帧头
 			if (pSerial->sRecv.u16WriteIndex != pSerial->sRecv.u16ReadIndex && u16Diff >= 8)
@@ -547,6 +576,15 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 			SaveRespondFrame(0x12, (const uint8_t *)pParams, 4);
 			break;
 
+		case RESPOND_GET_VOLTAGE:
+		{
+			// 获取电压反馈: 0x14, 数据域 2 字节 电压x10(大端)
+			const uint16_t u16VoltX10 = *(const uint16_t *)pParams;
+			const uint8_t au8Volt[2] = { (uint8_t)(u16VoltX10 >> 8), (uint8_t)(u16VoltX10 & 0xFFu) };
+			SaveRespondFrame(0x14, au8Volt, 2);
+			break;
+		}
+
 		default:
 			break;
 	}
@@ -610,6 +648,21 @@ void SendSerialByteArray(SerialDataType *pSerial)
 
 void SerialDataHandle(void)
 {
+	// 直接观察DMA写入活动, 不必等到IDLE才闪灯; 连续无间隙字节流也能显示。
+	const uint16_t u16WriteIndex = (UART_RECV_DATA_BUFFER_SIZE -
+		__HAL_DMA_GET_COUNTER(g_sSerial1Data.sRecv.hdma)) % UART_RECV_DATA_BUFFER_SIZE;
+	bool bActivity = g_sSerial1Data.sRecv.bRecvActivity;
+	g_sSerial1Data.sRecv.bRecvActivity = false;
+	if (u16WriteIndex != g_sSerial1Data.sRecv.u16ActivityIndex)
+	{
+		g_sSerial1Data.sRecv.u16ActivityIndex = u16WriteIndex;
+		bActivity = true;
+	}
+	if (bActivity)
+	{
+		CbSerialReceiveActivity();
+	}
+
 	UartRecvBufferHandler(&g_sSerial1Data);
 	SendSerialByteArray(&g_sSerial1Data);
 }
@@ -713,6 +766,11 @@ void SerialHandleNetworkFrame(const uint8_t *pFrame, const uint8_t u8Len)
 		// 获取IP: 数据域 1 字节(固定 0x01), 本机无需使用其内容
 		case 0x11:
 			sInfo.eInfo = INFO_GET_IP;
+			break;
+
+		// 获取电压: 数据域 1 字节(固定 0x01), 应答 0x14 带 2 字节 电压x10
+		case 0x13:
+			sInfo.eInfo = INFO_GET_VOLTAGE;
 			break;
 
 		default:

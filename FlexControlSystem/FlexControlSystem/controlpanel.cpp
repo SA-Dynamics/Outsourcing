@@ -107,6 +107,10 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->pbCloseLightA, SIGNAL(clicked()), this, SLOT(on_pbCloseLightA_clicked()));
     connect(ui->pbOpenLightB, SIGNAL(clicked()), this, SLOT(on_pbOpenLightB_clicked()));
     connect(ui->pbCloseLihgtB, SIGNAL(clicked()), this, SLOT(on_pbCloseLihgtB_clicked()));
+    connect(ui->pbOpenLightC, &QPushButton::clicked, this, &ControlPanel::on_pbOpenLightC_clicked);
+    connect(ui->pbCloseLightC, &QPushButton::clicked, this, &ControlPanel::on_pbCloseLightC_clicked);
+    connect(ui->pbOpenLightD, &QPushButton::clicked, this, &ControlPanel::on_pbOpenLightD_clicked);
+    connect(ui->pbCloseLightD, &QPushButton::clicked, this, &ControlPanel::on_pbCloseLightD_clicked);
 
     // 交替居中序列的三个时间参数(模式数据面板, 单位: 秒):
     // 默认值与此前固化的 0.8s / 0.8s / 0.1s 行为一致
@@ -166,6 +170,10 @@ ControlPanel::ControlPanel(QWidget *parent) :
         ui->pbCloseLightA->setEnabled(false);
         ui->pbOpenLightB->setEnabled(true);
         ui->pbCloseLihgtB->setEnabled(false);
+        ui->pbOpenLightC->setEnabled(true);
+        ui->pbCloseLightC->setEnabled(false);
+        ui->pbOpenLightD->setEnabled(true);
+        ui->pbCloseLightD->setEnabled(false);
     });
 
     ui->pbSendMotionStop->setEnabled(false);
@@ -174,6 +182,8 @@ ControlPanel::ControlPanel(QWidget *parent) :
     ui->pbBinStopMotion->setEnabled(false);
     ui->pbCloseLightA->setEnabled(false);
     ui->pbCloseLihgtB->setEnabled(false);
+    ui->pbCloseLightC->setEnabled(false);
+    ui->pbCloseLightD->setEnabled(false);
 }
 
 ControlPanel::~ControlPanel()
@@ -212,6 +222,10 @@ void ControlPanel::SetReadOnly(const bool bReadOnly)
         ui->pbCloseLightA->setEnabled(false);
         ui->pbOpenLightB->setEnabled(false);
         ui->pbCloseLihgtB->setEnabled(false);
+        ui->pbOpenLightC->setEnabled(false);
+        ui->pbCloseLightC->setEnabled(false);
+        ui->pbOpenLightD->setEnabled(false);
+        ui->pbCloseLightD->setEnabled(false);
     }
 }
 
@@ -292,6 +306,17 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     Settings.beginGroup("LightB");
     ui->spLightBBrightness->setValue(Settings.value("brightness", ui->spLightBBrightness->value()).toInt());
     ui->spLightBTime->setValue(Settings.value("timeuse", ui->spLightBTime->value()).toInt());
+    Settings.endGroup();
+
+    // 老配置缺 C/D 时明确回落为 0, 避免切换模式后残留上一份配置的值。
+    Settings.beginGroup("LightC");
+    ui->spLightCBrightness->setValue(Settings.value("brightness", 0).toInt());
+    ui->spLightCTime->setValue(Settings.value("timeuse", 0).toInt());
+    Settings.endGroup();
+
+    Settings.beginGroup("LightD");
+    ui->spLightDBrightness->setValue(Settings.value("brightness", 0).toInt());
+    ui->spLightDTime->setValue(Settings.value("timeuse", 0).toInt());
     Settings.endGroup();
 
     // 聚拢(交替居中)序列的三个时间参数: 水平居中段 / 垂直居中段 / 段间间隔(单位秒)
@@ -792,6 +817,16 @@ void ControlPanel::SaveSettings(void)
     Settings.setValue("timeuse", ui->spLightBTime->value());
     Settings.endGroup();
 
+    Settings.beginGroup("LightC");
+    Settings.setValue("brightness", ui->spLightCBrightness->value());
+    Settings.setValue("timeuse", ui->spLightCTime->value());
+    Settings.endGroup();
+
+    Settings.beginGroup("LightD");
+    Settings.setValue("brightness", ui->spLightDBrightness->value());
+    Settings.setValue("timeuse", ui->spLightDTime->value());
+    Settings.endGroup();
+
     // 聚拢(交替居中)序列的时间参数
     Settings.beginGroup("GatherSequence");
     Settings.setValue("hmotion_time", ui->dspHMotionTime->value());
@@ -970,6 +1005,10 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
     ui->spLightATime->setValue(pOther->ui->spLightATime->value());
     ui->spLightBBrightness->setValue(pOther->ui->spLightBBrightness->value());
     ui->spLightBTime->setValue(pOther->ui->spLightBTime->value());
+    ui->spLightCBrightness->setValue(pOther->ui->spLightCBrightness->value());
+    ui->spLightCTime->setValue(pOther->ui->spLightCTime->value());
+    ui->spLightDBrightness->setValue(pOther->ui->spLightDBrightness->value());
+    ui->spLightDTime->setValue(pOther->ui->spLightDTime->value());
 
     // 聚拢(交替居中)序列的三个时间参数也要互拷, 否则模式数据面板保存后会丢
     ui->dspHMotionTime->setValue(pOther->ui->dspHMotionTime->value());
@@ -1134,4 +1173,121 @@ void ControlPanel::on_pbCloseLihgtB_clicked()
 
     ui->pbOpenLightB->setEnabled(true);
     ui->pbCloseLihgtB->setEnabled(false);
+}
+
+void ControlPanel::on_pbOpenLightC_clicked()
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_C,
+                                 static_cast<uint8_t>(ui->spLightCBrightness->value()),
+                                 static_cast<uint16_t>(qMin(ui->spLightCTime->value() * 10, 65535)),
+                                 qbtData, qbtRespond);
+
+    emit sigLightOn(qbtData, qbtRespond);
+
+    ui->pbOpenLightC->setEnabled(false);
+    ui->pbCloseLightC->setEnabled(true);
+}
+
+void ControlPanel::on_pbCloseLightC_clicked()
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOffProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_C, qbtData, qbtRespond);
+
+    emit sigLightOff(qbtData, qbtRespond);
+
+    ui->pbOpenLightC->setEnabled(true);
+    ui->pbCloseLightC->setEnabled(false);
+}
+
+void ControlPanel::on_pbOpenLightD_clicked()
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_D,
+                                 static_cast<uint8_t>(ui->spLightDBrightness->value()),
+                                 static_cast<uint16_t>(qMin(ui->spLightDTime->value() * 10, 65535)),
+                                 qbtData, qbtRespond);
+
+    emit sigLightOn(qbtData, qbtRespond);
+
+    ui->pbOpenLightD->setEnabled(false);
+    ui->pbCloseLightD->setEnabled(true);
+}
+
+void ControlPanel::on_pbCloseLightD_clicked()
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    QByteArray qbtRespond;
+    m_pProtocol->LightOffProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_D, qbtData, qbtRespond);
+
+    emit sigLightOff(qbtData, qbtRespond);
+
+    ui->pbOpenLightD->setEnabled(true);
+    ui->pbCloseLightD->setEnabled(false);
+}
+
+// 光源保持时间到: 下位机自发 0x0E 完成帧(带索引), 恢复对应路光源按钮。
+// u8Index: 1~4 对应 A~D, 0 = 全关(四路全部恢复)
+void ControlPanel::OnLightOffFinish(const uint8_t &u8Index)
+{
+    // 只读面板(模式数据)未连接通信引擎, 不会收到本信号, 这里兜底
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_A)
+    {
+        ui->pbOpenLightA->setEnabled(true);
+        ui->pbCloseLightA->setEnabled(false);
+    }
+    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_B)
+    {
+        ui->pbOpenLightB->setEnabled(true);
+        ui->pbCloseLihgtB->setEnabled(false);
+    }
+    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_C)
+    {
+        ui->pbOpenLightC->setEnabled(true);
+        ui->pbCloseLightC->setEnabled(false);
+    }
+    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_D)
+    {
+        ui->pbOpenLightD->setEnabled(true);
+        ui->pbCloseLightD->setEnabled(false);
+    }
+    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_ALL)
+    {
+        ui->pbOpenLightA->setEnabled(true);
+        ui->pbCloseLightA->setEnabled(false);
+        ui->pbOpenLightB->setEnabled(true);
+        ui->pbCloseLihgtB->setEnabled(false);
+        ui->pbOpenLightC->setEnabled(true);
+        ui->pbCloseLightC->setEnabled(false);
+        ui->pbOpenLightD->setEnabled(true);
+        ui->pbCloseLightD->setEnabled(false);
+    }
 }

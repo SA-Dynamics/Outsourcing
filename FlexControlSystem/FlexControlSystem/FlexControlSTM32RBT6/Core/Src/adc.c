@@ -58,7 +58,11 @@ void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_10;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  /* 采样时间 239.5 周期(9MHz ADCCLK 下约 26.6us):
+   * PC0 经分压电阻接入, 源阻抗为 kΩ 级; 原来的 1.5 周期采样要求源阻抗
+   * <200Ω, 采样电容充不满电, 读数会停在残留电荷(典型表现: 恒 0xFFF)。
+   * 采样间隔 20ms, 加长采样时间不影响主循环实时性。 */
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();

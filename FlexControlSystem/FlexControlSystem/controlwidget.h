@@ -82,6 +82,11 @@ private slots:
     void OnUdpGetIpReadyRead();
     void OnUdpGetIpTimeout();
 
+    // 电压周期查询: 2s 一次, 连接后自动开始, 断开停止
+    void OnVoltageQueryTick();
+    // 电压应答: 电压x10, 换算为 V 显示到 leVoltage(系数由下位机换算, 这里除 10)
+    void OnVoltageResult(const quint16 &u16VoltX10);
+
 private:
     Ui::ControlWidget *ui;
     ConnectiveHandle *m_ConnectiveHandler;
@@ -101,6 +106,9 @@ private:
     // UDP 发现(未连接时获取 IP): 套接字收应答, 单发定时器做超时
     QUdpSocket *m_pGetIpUdpSocket;
     QTimer *m_pGetIpUdpTimer;
+
+    // 电压周期查询定时器(2s): 连接成功启动, 断开/心跳丢失停止
+    QTimer *m_pVoltageTimer = nullptr;
 
     void SetConnectSlot(const bool bSet);
     void CloseConnection(void);

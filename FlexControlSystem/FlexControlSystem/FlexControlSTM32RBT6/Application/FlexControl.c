@@ -7,6 +7,7 @@
 #include "Network.h"
 #include "SaveParams.h"
 #include "Timer.h"
+#include "PowerMonitor.h"
 #include "spi.h"
 
 // 网络初始化失败后的重试间隔 ms
@@ -42,6 +43,88 @@ bool g_bNetworkInitSuccess = false;
 // 保存 IP 后的复位倒计时: 1 = 等待复位中
 static uint8_t g_u8RebootPending = 0;
 static uint32_t g_u32RebootTimer = 0;
+
+// 三个指示灯均为灌电流驱动: RESET 点亮, SET 熄灭。
+#define RUNNING_LED_HALF_PERIOD_MS   1000u
+#define COMM_LED_ON_TIME_MS          80u
+#define COMM_LED_OFF_TIME_MS         80u
+
+static struct
+{
+	uint32_t u32RunningTimer;
+	uint32_t u32CommTimer;
+	bool bRunningOn;
+	bool bCommOn;
+	bool bCommPending;
+} g_sStatusLed;
+
+static void StatusLedInit(void)
+{
+	const uint32_t u32Now = GetCurTimerCount();
+
+	g_sStatusLed.u32RunningTimer = u32Now;
+	g_sStatusLed.u32CommTimer = u32Now - COMM_LED_OFF_TIME_MS;
+	g_sStatusLed.bRunningOn = true;
+	g_sStatusLed.bCommOn = false;
+	g_sStatusLed.bCommPending = false;
+	HAL_GPIO_WritePin(RunningLED_GPIO_Port, RunningLED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(CommLED_GPIO_Port, CommLED_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(MotionLED_GPIO_Port, MotionLED_Pin, GPIO_PIN_SET);
+}
+
+// 两个接收回调都由主循环调用, 不在 ISR 内操作GPIO或累计计时。
+void CbSerialReceiveActivity(void)
+{
+	g_sStatusLed.bCommPending = true;
+}
+
+void CbNetworkReceiveActivity(void)
+{
+	g_sStatusLed.bCommPending = true;
+}
+
+static void StatusLedHandle(void)
+{
+	const uint32_t u32Now = GetCurTimerCount();
+	const uint32_t u32HalfPeriods = (u32Now - g_sStatusLed.u32RunningTimer) / RUNNING_LED_HALF_PERIOD_MS;
+	const bool bExecuting = MotorControlIsBusy() || BinControlIsBusy() || LightControlIsBusy();
+
+	// 按经过的半周期更新, 不用delay/新中断; 无符号差值可跨HAL tick回绕。
+	if (u32HalfPeriods != 0u)
+	{
+		g_sStatusLed.u32RunningTimer += u32HalfPeriods * RUNNING_LED_HALF_PERIOD_MS;
+		if ((u32HalfPeriods & 1u) != 0u)
+		{
+			g_sStatusLed.bRunningOn = !g_sStatusLed.bRunningOn;
+		}
+		HAL_GPIO_WritePin(RunningLED_GPIO_Port, RunningLED_Pin,
+			g_sStatusLed.bRunningOn ? GPIO_PIN_RESET : GPIO_PIN_SET);
+	}
+
+	// 接收密集时最多保留一个待闪事件, 且两次亮脉冲之间保证80ms灭灯。
+	// 不在每包到来时延长亮灯时间, 避免心跳/持续流量把通信灯锁成常亮。
+	if (g_sStatusLed.bCommOn)
+	{
+		if ((u32Now - g_sStatusLed.u32CommTimer) >= COMM_LED_ON_TIME_MS)
+		{
+			g_sStatusLed.bCommOn = false;
+			g_sStatusLed.u32CommTimer = u32Now;
+			HAL_GPIO_WritePin(CommLED_GPIO_Port, CommLED_Pin, GPIO_PIN_SET);
+		}
+	}
+	else if (g_sStatusLed.bCommPending &&
+			 (u32Now - g_sStatusLed.u32CommTimer) >= COMM_LED_OFF_TIME_MS)
+	{
+		g_sStatusLed.bCommPending = false;
+		g_sStatusLed.bCommOn = true;
+		g_sStatusLed.u32CommTimer = u32Now;
+		HAL_GPIO_WritePin(CommLED_GPIO_Port, CommLED_Pin, GPIO_PIN_RESET);
+	}
+
+	// 振动盘/料仓包含排队和运动内等待; 光源保持期间(含常亮)也是执行中。
+	HAL_GPIO_WritePin(MotionLED_GPIO_Port, MotionLED_Pin,
+		bExecuting ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
 
 void HeartBeatHandler(void)
 {
@@ -176,6 +259,27 @@ static void GetIpHandler(void)
 }
 
 
+// ADC 原始值 -> 电压(V) 系数: 待实测标定, 当前为预设值
+// 换算: 电压(V) = ADC均值 / 4095 * VREF(3.3) * 分压比(11)
+// 上传格式为 电压x10(协议 0x14), 即 ADC * COEFF * 10; 标定后只改这个宏
+#define POWER_VOLTAGE_COEFF_X10		(11.0f * 3.3f)		// = 电压(V)/ADC ×1 预设值
+
+/**
+ * @brief  获取电压, 回 0x14 + 2 字节 电压x10
+ * @note   取 PowerMonitor 的均值滤波结果; 尚无有效样本时上传 0,
+ *         上位机连接后 2s 才发首帧, 正常情况下窗口已填满。
+ */
+static void GetVoltageHandler(void)
+{
+	float fVoltage = 0.0f;
+
+	(void)PowerMonitorGetVoltage(&fVoltage);
+
+	uint16_t u16VoltX10 = (uint16_t)(fVoltage * 10.0f + 0.5f);
+	SendSerialRespond(RESPOND_GET_VOLTAGE, &u16VoltX10);
+}
+
+
 void SerialRecvInfoHandle(void)
 {
 	static SerialInfo sSerialInfo;
@@ -214,7 +318,7 @@ void SerialRecvInfoHandle(void)
 				break;
 
 			case INFO_LIGHT_OFF:
-				// u8LightIndex = 0 关闭全部; 1/2 只关指定光源
+				// u8LightIndex = 0 关闭全部; 1/2/3/4 只关 A/B/C/D
 				LightControlStop(sSerialInfo.u8LightIndex);
 				break;
 
@@ -224,6 +328,10 @@ void SerialRecvInfoHandle(void)
 
 			case INFO_GET_IP:
 				GetIpHandler();
+				break;
+
+			case INFO_GET_VOLTAGE:
+				GetVoltageHandler();
 				break;
 
 			default:
@@ -273,6 +381,8 @@ static void NetworkRetryHandle(void)
 
 void FlexControlInit(void)
 {
+	StatusLedInit();
+
 	// 先读 Flash 参数: NetworkInit 要用里面保存的 IP
 	SaveParamsInit();
 
@@ -281,6 +391,7 @@ void FlexControlInit(void)
 	MotionControlInit();
 	BinControlInit();
 	LightControlInit();
+	PowerMonitorInit();
 
 	// 首次初始化网络, 失败不阻塞其余模块, 由 NetworkRetryHandle 定期重试
 	g_bNetworkInitSuccess = NetworkInit(&g_sNetworkHwCfg);
@@ -310,6 +421,12 @@ void FlexControlHandle(void)
 	MotorControl();
 	BinControl();
 	LightControl();
+
+	// 电源电压采样: 状态机式启动/轮询, 每轮至多推进一步, 不阻塞
+	PowerMonitorHandle();
+
+	// 运行/通信/执行灯均在主循环刷新, 不新增中断。
+	StatusLedHandle();
 
 	// 保存 IP 成功后的延时复位: 等应答帧真的发出去再重启,
 	// 否则上位机只会看到"保存无应答"。复位后 W5500 重新初始化, 新 IP 生效。
