@@ -22,7 +22,7 @@ extern "C" {
 #define POWER_MONITOR_VREF_V            3.3f
 
 /** 分压比: 电源 -> PC0 的分压系数(按实际电阻填写, 当前假设 1:11) */
-#define POWER_MONITOR_DIVIDER_RATIO     7.14f
+#define POWER_MONITOR_DIVIDER_RATIO     9.47f
 
 /** 两次启动转换的最小间隔 ms(避免主循环过快连续触发) */
 #define POWER_MONITOR_INTERVAL_MS       20u
