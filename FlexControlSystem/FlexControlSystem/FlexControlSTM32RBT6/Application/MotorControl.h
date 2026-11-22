@@ -29,6 +29,7 @@ typedef struct
 	float fTimeUse;
 	int16_t s16AngleOffset;
 	int8_t s8ModifyCoeff;
+	uint8_t u8InfiniteTime;		// 1=无限时间动作, 0=按 fTimeUse 计时
 }MotorMotionParams;
 
 // weak, 回调由外部实现

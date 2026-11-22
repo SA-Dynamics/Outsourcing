@@ -402,6 +402,12 @@ static void PrepareBinMotion(const BinMotionParams *pParams)
 
 	// 运动耗时 ms
 	g_sBinControl.u32TimeUseMs = (uint32_t)(pParams->fTimeUse * 1000.0f);
+
+	// 无限时间动作(上位机"保持"勾选): 一直振动, 直到收到料仓停止指令(0x09)
+	if (pParams->u8InfiniteTime)
+	{
+		g_sBinControl.u32TimeUseMs = 0xFFFFFFFFu;
+	}
 	ResetTimerCount(&g_sBinControl.u32TimerCount);
 
 	// 电压 -> 占空比缩放系数(Q15), 表幅值已经是 4499(=ARR), 满电压即满占空比

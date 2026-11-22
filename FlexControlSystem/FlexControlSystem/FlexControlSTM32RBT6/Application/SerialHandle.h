@@ -51,6 +51,9 @@ typedef struct
 	float fMotionTimeUse;
 	int16_t s16AngleOffset;
 	int8_t s8ModifyCoeff;
+	// 数据域末尾追加的 1 字节(2026-11-22 协议扩展):
+	// 1 = 无限时间动作(一直动作, 直到收到停止指令), 0 = 按 fMotionTimeUse 计时
+	uint8_t u8InfiniteTime;
 	// 光源参数
 	uint8_t u8LightIndex;			// 1=A, 2=B, 3=C, 4=D; 0仅用于关闭全部
 	uint8_t u8LightBrightness;		// 0~100

@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QCloseEvent>
 #include <QPushButton>
+#include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QUdpSocket>
 #include <QHostAddress>
 #include <QNetworkInterface>
@@ -318,9 +320,22 @@ ControlWidget::ControlWidget(QWidget *parent)
             this, &ControlWidget::OnVoltageQueryTick);
     ui->leVoltage->setText("--");
     // 控制面板实例化, 一个用于配置, 一个用于控制
-    m_pControlWidget = new ControlPanel(ui->ControlTabWidget);
+    m_pControlWidget = new ControlPanel(ui->ControlTabWidget, true);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
     m_pModeWidget->SetReadOnly(true);
+
+    ui->tabPanel->removeTab(ui->tabPanel->indexOf(ui->tabMode));
+    ui->tabPanel->setCurrentWidget(ui->tabControl);
+    ui->tabPanel->setTabText(0, QStringLiteral("运行"));
+    ui->tabMode->hide();
+    ui->pbControl2Mode->setText(QStringLiteral("配置数据"));
+    ui->pbControl2Mode->setEnabled(true);
+    ui->pbControl2Mode->setVisible(true);
+    ui->pbMode2Control->setVisible(false);
+    ui->pbOpenMode->setVisible(false);
+    ui->pbSaveMode->setVisible(false);
+    ui->pbSaveModeAs->setVisible(false);
+    ui->pbNewMode->setVisible(false);
 
     // 控制板数据页: 只用"很淡的蓝"标记按钮可点(与模式数据页的只读深灰底区分)。
     // 规则用 :enabled 限定 —— 整页禁用(未连接 / 断开)时按钮不匹配, 仍是系统禁用灰,
@@ -828,22 +843,79 @@ void ControlWidget::on_tabPanel_currentChanged(int index)
 
 void ControlWidget::on_pbControl2Mode_clicked()
 {
-    auto ret = QMessageBox::question(
-        this,
-        "确认",
-        "确定要将控制参数覆盖到模式数据吗？",
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No
-    );
-
-    if (ret == QMessageBox::Yes)
+    if (m_pConfigDialog != nullptr)
     {
-        m_pModeWidget->CopyButtonParams(m_pControlWidget);
+        m_pConfigDialog->show();
+        m_pConfigDialog->raise();
+        m_pConfigDialog->activateWindow();
+        return;
     }
-    else
-    {
 
+    m_pModeWidget->CopyButtonParams(m_pControlWidget);
+    m_pConfigDialog = new QDialog(this);
+    m_pConfigDialog->setObjectName(QStringLiteral("ConfigDialog"));
+    m_pConfigDialog->setWindowTitle(QStringLiteral("配置数据"));
+    m_pConfigDialog->setModal(false);
+    m_pConfigDialog->resize(1050, 720);
+    QVBoxLayout *pLayout = new QVBoxLayout(m_pConfigDialog);
+    QHBoxLayout *pFiles = new QHBoxLayout();
+    const QList<QPushButton *> Buttons = {ui->pbOpenMode, ui->pbSaveMode, ui->pbSaveModeAs, ui->pbNewMode};
+    for (QPushButton *pButton : Buttons)
+    {
+        pFiles->addWidget(pButton);
+        pButton->setEnabled(true);
+        pButton->show();
     }
+    pLayout->addLayout(pFiles);
+    pLayout->addWidget(ui->ModeTabWidget, 1);
+    ui->ModeTabWidget->show();
+    QLabel *pNotice = new QLabel(QStringLiteral("编辑和取消不改变运行参数；运动中不可应用。文件保存仅存盘，不自动应用。"), m_pConfigDialog);
+    pLayout->addWidget(pNotice);
+    QDialogButtonBox *pBox = new QDialogButtonBox(m_pConfigDialog);
+    QPushButton *pApply = pBox->addButton(QStringLiteral("应用（不存盘）"), QDialogButtonBox::ActionRole);
+    pApply->setObjectName(QStringLiteral("ConfigApply"));
+    QPushButton *pSave = pBox->addButton(QStringLiteral("保存并应用"), QDialogButtonBox::ActionRole);
+    pSave->setObjectName(QStringLiteral("ConfigSaveApply"));
+    pBox->addButton(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消关闭"));
+    pLayout->addWidget(pBox);
+    connect(pApply, &QPushButton::clicked, this, [this]() { ApplyConfiguration(false); });
+    connect(pSave, &QPushButton::clicked, this, [this]() { ApplyConfiguration(true); });
+    connect(pBox, &QDialogButtonBox::rejected, m_pConfigDialog, &QDialog::reject);
+    connect(m_pConfigDialog, &QDialog::finished, this, [this, Buttons]() {
+        QDialog *pDialog = m_pConfigDialog;
+        ui->tabMode->layout()->addWidget(ui->ModeTabWidget);
+        ui->ModeTabWidget->hide();
+        for (QPushButton *pButton : Buttons)
+        {
+            pButton->setParent(this);
+            pButton->hide();
+        }
+        m_pConfigDialog = nullptr;
+        pDialog->deleteLater();
+    });
+    m_pConfigDialog->show();
+}
+
+void ControlWidget::ApplyConfiguration(const bool bSave)
+{
+    if (m_pControlWidget->IsMotionRunning())
+    {
+        QMessageBox::warning(m_pConfigDialog, QStringLiteral("不可应用"),
+                             QStringLiteral("运动正在执行，请先在运行页停止，或等待执行结束后再应用。"));
+        return;
+    }
+    if (bSave)
+    {
+        // SaveSettings 为 void，不能把调用完成当作存盘成功。
+        m_pModeWidget->SaveSettings();
+    }
+    m_pControlWidget->CopyButtonParams(m_pModeWidget);
+    if (bSave)
+    {
+        QMessageBox::information(m_pConfigDialog, QStringLiteral("已应用"),
+                                 QStringLiteral("参数已应用；已请求写入当前模式文件，存盘结果未确认。"));
+    }
+    m_pConfigDialog->accept();
 }
 
 void ControlWidget::on_pbMode2Control_clicked()
@@ -858,7 +930,7 @@ void ControlWidget::on_pbMode2Control_clicked()
 
     if (ret == QMessageBox::Yes)
     {
-        m_pControlWidget->CopyButtonParams(m_pModeWidget);
+        ApplyConfiguration(false);
     }
     else
     {

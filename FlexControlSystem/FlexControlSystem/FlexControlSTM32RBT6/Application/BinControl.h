@@ -16,6 +16,7 @@ typedef struct
 	float fVoltage;			// 电压, 协议为 x10 发送, 解析层已还原
 	float fFrequency;		// 频率
 	float fTimeUse;			// 运动时长, 秒
+	uint8_t u8InfiniteTime;	// 1=无限时间动作(一直振动到停止指令), 0=按 fTimeUse
 }BinMotionParams;
 
 // weak, 回调由 FlexControl.c 实现

@@ -2528,6 +2528,10 @@ static void PrepareMotion(const MotorMotionParams *pParams)
 	
 	// 计算当前运动的耗时, 单位为ms
 	g_sMotionControl.u32TimeUseExpect = pParams->fTimeUse * 1000;
+	if (pParams->u8InfiniteTime)
+	{
+		g_sMotionControl.u32TimeUseExpect = 0xFFFFFFFFu;	// 无限时间动作, 不会自己到时停止
+	}
 	ResetTimerCount(&g_sMotionControl.u32TimerCount);
 		
 	// 计算电压转换到PWM输出占空比的系数

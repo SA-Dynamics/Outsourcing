@@ -97,7 +97,8 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
 
     qbtSendCmd.append(u8SW_MOTION_CMD);
 
-    qbtSendCmd.append(0xB);
+    // 数据域 12 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限时间"标志)
+    qbtSendCmd.append(0xC);
     qbtSendCmd.append(GetMotionIndexCmd(sParams.eIndex));
 
     uint16_t u16Temp = 0;
@@ -125,6 +126,9 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     const int16_t s16ModifyCoeff = static_cast<int16_t>(sParams.s8ModifyCoeff);
     qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff & 0xFF));
+
+    // 数据域第 12 字节: 1=无限时间动作, 0=按上面的时间域计时
+    qbtSendCmd.append(static_cast<uint8_t>(sParams.bInfiniteTime ? 1 : 0));
 
 
     AddCheckSum(qbtSendCmd);
@@ -216,7 +220,8 @@ void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sPara
     qbtSendCmd.append(u8FRAME_HEAD2);
 
     qbtSendCmd.append(u8SW_BIN_MOTION_CMD);
-    qbtSendCmd.append(0x7);
+    // 数据域 8 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限时间"标志)
+    qbtSendCmd.append(0x8);
     // 料仓运动索引固定为 1(协议定义)
     qbtSendCmd.append(uint8_t(0x01));
 
@@ -232,6 +237,9 @@ void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sPara
     u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+
+    // 数据域第 8 字节: 1=无限时间动作, 0=按时间域计时
+    qbtSendCmd.append(static_cast<uint8_t>(sParams.bInfiniteTime ? 1 : 0));
 
     AddCheckSum(qbtSendCmd);
 
@@ -289,7 +297,7 @@ void GeneralProtocol::BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtR
 
 // 打开光源(0x0B): 亮度 0~100, 保持时间单位 100ms; 应答 0x0C 带回光源索引
 void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
-                                      const uint16_t u16KeepTime,
+                                      const uint16_t u16KeepTime, const bool bInfiniteKeep,
                                       QByteArray &qbtSendCmd, QByteArray &qbtRespond)
 {
     // 上位机发送
@@ -297,11 +305,14 @@ void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Bri
     qbtSendCmd.append(u8FRAME_HEAD2);
 
     qbtSendCmd.append(u8SW_LIGHT_ON_CMD);
-    qbtSendCmd.append(0x4);
+    // 数据域 5 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限保持"标志)
+    qbtSendCmd.append(0x5);
     qbtSendCmd.append(u8Index);
     qbtSendCmd.append(u8Brightness);
     qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime & 0xFF));
+    // 第 5 字节: 1=无限保持(等价于下位机的"保持时间 0 = 常亮"), 0=按保持时间
+    qbtSendCmd.append(static_cast<uint8_t>(bInfiniteKeep ? 1 : 0));
 
     AddCheckSum(qbtSendCmd);
 

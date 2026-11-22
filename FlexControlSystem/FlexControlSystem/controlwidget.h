@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QThread>
+#include <QDialog>
 #include "controlpanel.h"
 #include "rs485handle.h"
 #include "tcphandle.h"
@@ -110,6 +111,8 @@ private:
     // 电压周期查询定时器(2s): 连接成功启动, 断开/心跳丢失停止
     QTimer *m_pVoltageTimer = nullptr;
 
+    QDialog *m_pConfigDialog = nullptr;
+    void ApplyConfiguration(const bool bSave);
     void SetConnectSlot(const bool bSet);
     void CloseConnection(void);
 };

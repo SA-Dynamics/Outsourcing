@@ -91,7 +91,7 @@ public:
     void BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond) override;
 
     void LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
-                         const uint16_t u16KeepTime,
+                         const uint16_t u16KeepTime, const bool bInfiniteKeep,
                          QByteArray &qbtSendCmd, QByteArray &qbtRespond) override;
 
     void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond) override;

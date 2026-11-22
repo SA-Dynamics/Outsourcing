@@ -23,6 +23,23 @@
 #define GET_VOLTAGE_TIMEOUT_MS      2000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
+// 无限时间动作(0x03/0x07 数据域末尾标志=1)的响应超时 ms。
+// 这类指令下位机只在收到停止指令后才结束, 不会自己回完成帧, 所以给一个
+// "实际上永不超时"的值(24h); 真的超时了说明链路已死, 报错比静默等更合适。
+// 用户点停止时 SendStopMotionCommand/SendBinStopMotionCommand 会清队列并
+// emit sigMotionTerminate, 按钮照常恢复, 不会被这个超时卡住。
+#define INFINITE_MOTION_TIMEOUT_MS  (24u * 60u * 60u * 1000u)
+
+
+// 判断运动类帧是不是"无限时间动作"。帧布局:
+//   55 AA | cmd | len | data(N) | chkH chkL | AA 55
+// 数据域最后一个字节(无限时间标志)的下标 = size()-5 (0x03 是第 12 字节, 0x07 是第 8 字节)
+static bool IsInfiniteTimeFrame(const QByteArray &qbtData)
+{
+    const int iFlagIndex = qbtData.size() - 5;
+
+    return (iFlagIndex >= 4) && (static_cast<uint8_t>(qbtData.at(iFlagIndex)) == 1);
+}
 
 
 ConnectiveHandle::ConnectiveHandle(QObject *parent)
@@ -126,8 +143,16 @@ void ConnectiveHandle::SendMotionCommand(const QByteArray &qbtData, const QByteA
     sSendStruct.i64StartTime = 0;
 
     // 运动指令加 2s 的超时冗余: 帧内 [9][10] 为运动时长(单位 100ms)
-    sSendStruct.u32ExpectedRespondTimeThresh =
-            (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+    // 无限时间动作(数据域末字节=1)不会自己结束, 改用 24h 的"准无限"超时
+    if (IsInfiniteTimeFrame(qbtData))
+    {
+        sSendStruct.u32ExpectedRespondTimeThresh = INFINITE_MOTION_TIMEOUT_MS;
+    }
+    else
+    {
+        sSendStruct.u32ExpectedRespondTimeThresh =
+                (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+    }
 
     qDebug() << "send motion";
     m_qmapSendBuffer[SendCmdType::MotionCmd].append(sSendStruct);
@@ -185,8 +210,16 @@ void ConnectiveHandle::SendBinMotionCommand(const QByteArray &qbtData, const QBy
     sSendStruct.i64StartTime = 0;
 
     // 料仓帧的数据域布局与振动盘一致: [9][10] 为运动时长(单位 100ms)
-    sSendStruct.u32ExpectedRespondTimeThresh =
-            (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+    // 无限时间动作同样改用 24h 的"准无限"超时
+    if (IsInfiniteTimeFrame(qbtData))
+    {
+        sSendStruct.u32ExpectedRespondTimeThresh = INFINITE_MOTION_TIMEOUT_MS;
+    }
+    else
+    {
+        sSendStruct.u32ExpectedRespondTimeThresh =
+                (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+    }
 
     qDebug() << "send bin motion";
     m_qmapSendBuffer[SendCmdType::BinMotion].append(sSendStruct);

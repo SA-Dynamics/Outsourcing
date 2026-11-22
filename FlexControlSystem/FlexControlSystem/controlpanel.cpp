@@ -6,10 +6,18 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QTabWidget>
+#include <QAbstractSpinBox>
+#include <QSlider>
+#include <QDial>
+#include <QGroupBox>
+#include <QGridLayout>
+#include <QCheckBox>
 
 
 
-ControlPanel::ControlPanel(QWidget *parent) :
+ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
     QWidget(parent),
     ui(new Ui::ControlPanel)
 {
@@ -22,6 +30,64 @@ ControlPanel::ControlPanel(QWidget *parent) :
     // 因此本类每个 on_xxx_clicked/valueChanged 都必须手动 connect, 见下面的"连接按钮事件"段。
     // 若哪天改成 setupUi(this), 必须同时把本控件正确 addTab 进 QTabWidget, 否则界面会错位。
     ui->setupUi(parent);
+
+    if (bFlatRun)
+    {
+        // 复用 Designer 的内层布局，不能对已有布局的 parent 再安装布局。
+        ui->gridLayout->removeWidget(ui->tabWidget);
+        ui->tabWidget->hide();
+        QHBoxLayout *pFlatLayout = new QHBoxLayout();
+        ui->gridLayout->addLayout(pFlatLayout, 0, 0);
+        const QStringList Titles = {QStringLiteral("运动"), QStringLiteral("光源"), QStringLiteral("料仓")};
+        for (int s32Index = 0; s32Index < 3; ++s32Index)
+        {
+            QWidget *pPage = ui->tabWidget->widget(0);
+            ui->tabWidget->removeTab(0);
+            // 标题只由下面的蓝色标题条承担：QGroupBox 自带标题会和它重复（框外一行灰字 + 框内一行蓝底粗体）。
+            QGroupBox *pGroup = new QGroupBox(parent);
+            pGroup->setObjectName(QStringLiteral("RunGroup%1").arg(s32Index));
+            pGroup->setTitle(QString());
+            QVBoxLayout *pLayout = new QVBoxLayout(pGroup);
+            pLayout->setContentsMargins(4, 4, 4, 4);
+            pLayout->setSpacing(4);
+            QLabel *pTitle = new QLabel(Titles.at(s32Index), pGroup);
+            pTitle->setObjectName(QStringLiteral("RunGroupTitle%1").arg(s32Index));
+            pTitle->setStyleSheet(QStringLiteral("font-weight: bold; color: #202020; background: #E7F1FC; padding: 2px 6px;"));
+            // 关键：标题条必须是"定高、纵向不可拉伸"。
+            // 原来只写了 setMinimumHeight(22)，竖直 SizePolicy 仍是 Preferred(=可放大)，
+            // QVBoxLayout 于是把整列富余高度都塞给它 → 运动区顶部出现一大片空白蓝块，
+            // 按钮被顶到下面（光源/料仓因为页内自带 verticalSpacer 吸收了富余高度，所以看不出问题）。
+            pTitle->setFixedHeight(24);
+            pTitle->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            pTitle->show();
+            pLayout->addWidget(pTitle, 0);
+            pLayout->addWidget(pPage, 0);
+            // 富余高度统一留在底部（与光源/料仓页内 spacer 的观感一致），不再撑高标题条或拉开按钮间距。
+            pLayout->addStretch(1);
+            pFlatLayout->addWidget(pGroup, s32Index == 0 ? 3 : 2);
+            pPage->show();
+            for (QWidget *pEditor : pPage->findChildren<QWidget *>())
+            {
+                if (qobject_cast<QAbstractSpinBox *>(pEditor) ||
+                    qobject_cast<QAbstractSlider *>(pEditor) ||
+                    qobject_cast<QLineEdit *>(pEditor) ||
+                    // "保持"复选框也是参数编辑控件: 运行页只保留按钮, 值仍参与下发
+                    qobject_cast<QCheckBox *>(pEditor))
+                {
+                    pEditor->hide();
+                    pEditor->setEnabled(false);
+                }
+            }
+            for (QLabel *pLabel : pPage->findChildren<QLabel *>())
+            {
+                pLabel->hide();
+            }
+        }
+        // 隐藏的高级页及其 G1/G2 控件留在 tabWidget 中，仍参与运行取值。
+        ui->horizontalSpacer->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
+        ui->horizontalSpacer_8->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
+        ui->horizontalSpacer_9->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
 
     ui->dialAngleRegulation->setTracking(true);
 
@@ -81,6 +147,8 @@ ControlPanel::ControlPanel(QWidget *parent) :
     connect(ui->dspbVoltage, SIGNAL(valueChanged(double)), this, SLOT(on_dspbVoltage_valueChanged(double)));
     connect(ui->dspbFrequency, SIGNAL(valueChanged(double)), this, SLOT(on_dspbFrequency_valueChanged(double)));
     connect(ui->dspbTime, SIGNAL(valueChanged(double)), this, SLOT(on_dspbTime_valueChanged(double)));
+    // "保持"复选框: 与电压/频率/时间一样, 改的是"当前选中按钮"的那份参数
+    connect(ui->cbMotionKeep, SIGNAL(toggled(bool)), this, SLOT(on_cbMotionKeep_toggled(bool)));
     // 注意: 因上面 setupUi(parent) 的缘故, 这里的 connect 不能省 ——
     // "转到槽"生成的 on_xxx_clicked 不会自动生效, 新增按钮必须在此补一行
     connect(ui->pbSendMotion, SIGNAL(clicked()), this, SLOT(on_pbSendMotion_clicked()));
@@ -284,6 +352,8 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
                 {"timeuse", static_cast<float>(ReadNumber("timeuse", 0.0, false))},
                 {"voltage", static_cast<float>(ReadNumber("voltage", 10.0, true))},
                 {"angle_offset", static_cast<int>(ReadNumber("angle_offset", 0.0, false))},
+                // keep: 1=无限时间动作(默认 0)。老配置没有这个键, 一律按"按时间动作"
+                {"keep", (ReadNumber("keep", 0.0, false) > 0.5) ? 1 : 0},
             },
         };
 
@@ -295,28 +365,33 @@ void ControlPanel::GetSettingParams(const QString &qstrFileName)
     ui->dspbBinVoltage->setValue(Settings.value("voltage", ui->dspbBinVoltage->value()).toDouble());
     ui->dspbBinFrequency->setValue(Settings.value("frequency", ui->dspbBinFrequency->value()).toDouble());
     ui->dspbBinTime->setValue(Settings.value("timeuse", ui->dspbBinTime->value()).toDouble());
+    ui->cbBinKeep->setChecked(Settings.value("keep", ui->cbBinKeep->isChecked() ? 1 : 0).toInt() != 0);
     Settings.endGroup();
 
     // 光源参数
     Settings.beginGroup("LightA");
     ui->spLightABrightness->setValue(Settings.value("brightness", ui->spLightABrightness->value()).toInt());
     ui->spLightATime->setValue(Settings.value("timeuse", ui->spLightATime->value()).toInt());
+    ui->cbLightAKeep->setChecked(Settings.value("keep", ui->cbLightAKeep->isChecked() ? 1 : 0).toInt() != 0);
     Settings.endGroup();
 
     Settings.beginGroup("LightB");
     ui->spLightBBrightness->setValue(Settings.value("brightness", ui->spLightBBrightness->value()).toInt());
     ui->spLightBTime->setValue(Settings.value("timeuse", ui->spLightBTime->value()).toInt());
+    ui->cbLightBKeep->setChecked(Settings.value("keep", ui->cbLightBKeep->isChecked() ? 1 : 0).toInt() != 0);
     Settings.endGroup();
 
     // 老配置缺 C/D 时明确回落为 0, 避免切换模式后残留上一份配置的值。
     Settings.beginGroup("LightC");
     ui->spLightCBrightness->setValue(Settings.value("brightness", 0).toInt());
     ui->spLightCTime->setValue(Settings.value("timeuse", 0).toInt());
+    ui->cbLightCKeep->setChecked(Settings.value("keep", 0).toInt() != 0);
     Settings.endGroup();
 
     Settings.beginGroup("LightD");
     ui->spLightDBrightness->setValue(Settings.value("brightness", 0).toInt());
     ui->spLightDTime->setValue(Settings.value("timeuse", 0).toInt());
+    ui->cbLightDKeep->setChecked(Settings.value("keep", 0).toInt() != 0);
     Settings.endGroup();
 
     // 聚拢(交替居中)序列的三个时间参数: 水平居中段 / 垂直居中段 / 段间间隔(单位秒)
@@ -426,6 +501,8 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
             ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
             ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
             ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+            // "保持"也是按钮级参数(同一套共享控件编辑不同按钮), 切换/刷新时必须跟着换
+            ui->cbMotionKeep->setChecked(Button.qlstMotionParams.first().value("keep", 0).toInt() != 0);
 
             ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
             SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
@@ -478,6 +555,20 @@ void ControlPanel::on_dspbTime_valueChanged(double arg1)
 }
 
 
+// "保持"复选框: 勾选 = 下发"无限时间动作"(数据域末尾标志 1), 一直动作到点停止。
+// 与电压/频率/时间同一套机制: 写进"当前选中按钮"的那份参数里(不勾则不选中任何按钮时无效)。
+void ControlPanel::on_cbMotionKeep_toggled(bool bChecked)
+{
+    for (ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
+        {
+            Button.qlstMotionParams.first()["keep"] = bChecked ? 1 : 0;
+        }
+    }
+}
+
+
 // 将某个运动按钮的参数组帧下发(fTimeUseOverride > 0 时覆盖该按钮自己的执行时长;
 // fVoltageOverride >= 0 时覆盖该按钮自己的电压 —— 交替序列的间隔段用 0V 实现)
 void ControlPanel::SendButtonMotion(const ButtonParams &Button, const float fTimeUseOverride, const float fVoltageOverride)
@@ -500,6 +591,14 @@ void ControlPanel::SendButtonMotion(const ButtonParams &Button, const float fTim
     sParams.s16AngleOffset = Button.qlstMotionParams.first().value("angle_offset").toInt();
     // speed 已取消, 改为 ModifyCoeff: 只有水平/垂直居中用滑块的值, 其他运动发 0
     sParams.s8ModifyCoeff = GetModifyCoeff(Button.eMotion);
+
+    // "保持" = 无限时间动作(协议数据域末尾标志 1)。
+    // 但序列(聚拢交替 / G1 / G2)推进全靠"时间到"的完成帧: 某一段一旦变成无限动作,
+    // 下位机永远不回完成帧, 整个序列会卡死在那里。所以带 fTimeUseOverride 的段
+    // 一律强制按时间走, 不受按钮上的保持勾选影响。
+    sParams.bInfiniteTime = (fTimeUseOverride > 0)
+                            ? false
+                            : (Button.qlstMotionParams.first().value("keep", 0).toInt() != 0);
 
     m_pProtocol->MotionControlProtocol(sParams, qbtData, qbtRespond);
 
@@ -795,6 +894,8 @@ void ControlPanel::SaveSettings(void)
         Settings.setValue("voltage", Button.qlstMotionParams.first().value("voltage"));
 
         Settings.setValue("angle_offset", Button.qlstMotionParams.first().value("angle_offset"));
+        // keep: 1=无限时间动作(勾了"保持")
+        Settings.setValue("keep", Button.qlstMotionParams.first().value("keep", 0));
 
         Settings.endGroup();
     }
@@ -804,27 +905,32 @@ void ControlPanel::SaveSettings(void)
     Settings.setValue("voltage", ui->dspbBinVoltage->value());
     Settings.setValue("frequency", ui->dspbBinFrequency->value());
     Settings.setValue("timeuse", ui->dspbBinTime->value());
+    Settings.setValue("keep", ui->cbBinKeep->isChecked() ? 1 : 0);
     Settings.endGroup();
 
     // 光源参数
     Settings.beginGroup("LightA");
     Settings.setValue("brightness", ui->spLightABrightness->value());
     Settings.setValue("timeuse", ui->spLightATime->value());
+    Settings.setValue("keep", ui->cbLightAKeep->isChecked() ? 1 : 0);
     Settings.endGroup();
 
     Settings.beginGroup("LightB");
     Settings.setValue("brightness", ui->spLightBBrightness->value());
     Settings.setValue("timeuse", ui->spLightBTime->value());
+    Settings.setValue("keep", ui->cbLightBKeep->isChecked() ? 1 : 0);
     Settings.endGroup();
 
     Settings.beginGroup("LightC");
     Settings.setValue("brightness", ui->spLightCBrightness->value());
     Settings.setValue("timeuse", ui->spLightCTime->value());
+    Settings.setValue("keep", ui->cbLightCKeep->isChecked() ? 1 : 0);
     Settings.endGroup();
 
     Settings.beginGroup("LightD");
     Settings.setValue("brightness", ui->spLightDBrightness->value());
     Settings.setValue("timeuse", ui->spLightDTime->value());
+    Settings.setValue("keep", ui->cbLightDKeep->isChecked() ? 1 : 0);
     Settings.endGroup();
 
     // 聚拢(交替居中)序列的时间参数
@@ -887,8 +993,23 @@ void ControlPanel::SaveSettings(const QString &qstrFile)
 
 void ControlPanel::LoadSettings(const QString &qstrFile)
 {
-    // 设置当前配置路径
+    if (qstrFile.isEmpty())
+    {
+        return;
+    }
     GetSettingParams(qstrFile);
+    const QSignalBlocker BlockV(ui->dspbVoltage);
+    const QSignalBlocker BlockF(ui->dspbFrequency);
+    const QSignalBlocker BlockT(ui->dspbTime);
+    const QSignalBlocker BlockD(ui->dialAngleRegulation);
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (Button.qstrName == m_qstrCurrentMotionButton)
+        {
+            OnMotionGroupButtonClicked(Button.pButton);
+            break;
+        }
+    }
 }
 
 
@@ -1001,14 +1122,19 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
     ui->dspbBinVoltage->setValue(pOther->ui->dspbBinVoltage->value());
     ui->dspbBinFrequency->setValue(pOther->ui->dspbBinFrequency->value());
     ui->dspbBinTime->setValue(pOther->ui->dspbBinTime->value());
+    ui->cbBinKeep->setChecked(pOther->ui->cbBinKeep->isChecked());
     ui->spLightABrightness->setValue(pOther->ui->spLightABrightness->value());
     ui->spLightATime->setValue(pOther->ui->spLightATime->value());
+    ui->cbLightAKeep->setChecked(pOther->ui->cbLightAKeep->isChecked());
     ui->spLightBBrightness->setValue(pOther->ui->spLightBBrightness->value());
     ui->spLightBTime->setValue(pOther->ui->spLightBTime->value());
+    ui->cbLightBKeep->setChecked(pOther->ui->cbLightBKeep->isChecked());
     ui->spLightCBrightness->setValue(pOther->ui->spLightCBrightness->value());
     ui->spLightCTime->setValue(pOther->ui->spLightCTime->value());
+    ui->cbLightCKeep->setChecked(pOther->ui->cbLightCKeep->isChecked());
     ui->spLightDBrightness->setValue(pOther->ui->spLightDBrightness->value());
     ui->spLightDTime->setValue(pOther->ui->spLightDTime->value());
+    ui->cbLightDKeep->setChecked(pOther->ui->cbLightDKeep->isChecked());
 
     // 聚拢(交替居中)序列的三个时间参数也要互拷, 否则模式数据面板保存后会丢
     ui->dspHMotionTime->setValue(pOther->ui->dspHMotionTime->value());
@@ -1029,9 +1155,12 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
         m_pGroupMotion2->CopyFrom(pOther->m_pGroupMotion2);
     }
 
-    // 界面刷新所有按钮对应的参数(控件组只有一套, 依次刷新, 最终停留为最后
-    // 一个按钮的值); 刷新期间必须屏蔽 valueChanged 信号, 否则槽会把遍历中的
-    // 值写进"当前选中按钮"的存储参数, 造成数据污染
+    // 只刷新当前选中按钮；未选中时明确选中第一项，避免显示与编辑目标错配。
+    if (m_qstrCurrentMotionButton.isEmpty() && !m_lstMotionButtons.isEmpty())
+    {
+        m_qstrCurrentMotionButton = m_lstMotionButtons.first().qstrName;
+        m_lstMotionButtons.first().pButton->setChecked(true);
+    }
     {
         const QSignalBlocker BlockV(ui->dspbVoltage);
         const QSignalBlocker BlockF(ui->dspbFrequency);
@@ -1040,7 +1169,7 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
 
         for (const ButtonParams &Button : m_lstMotionButtons)
         {
-            if (Button.qlstMotionParams.isEmpty())
+            if (Button.qstrName != m_qstrCurrentMotionButton || Button.qlstMotionParams.isEmpty())
             {
                 continue;
             }
@@ -1048,6 +1177,8 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
             ui->dspbVoltage->setValue(Button.qlstMotionParams.first().value("voltage").toFloat());
             ui->dspbFrequency->setValue(Button.qlstMotionParams.first().value("frequency").toFloat());
             ui->dspbTime->setValue(Button.qlstMotionParams.first().value("timeuse").toFloat());
+            // "保持"也是按钮级参数(同一套共享控件编辑不同按钮), 切换/刷新时必须跟着换
+            ui->cbMotionKeep->setChecked(Button.qlstMotionParams.first().value("keep", 0).toInt() != 0);
 
             ui->leAngle->setText(QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt()));
             SetDialDirection(Button.eMotion, Button.qlstMotionParams.first().value("angle_offset").toInt());
@@ -1074,6 +1205,8 @@ void ControlPanel::on_pbBinStartMotion_clicked()
     sParams.s16AngleOffset = 0;
     // 料仓不使用位置修正系数(协议里也没这两个字节)
     sParams.s8ModifyCoeff = 0;
+    // "保持"= 无限时间动作: 下位机一直振动, 直到收到料仓停止指令(0x09)
+    sParams.bInfiniteTime = ui->cbBinKeep->isChecked();
 
     QByteArray qbtData;
     QByteArray qbtRespond;
@@ -1110,6 +1243,7 @@ void ControlPanel::on_pbOpenLightA_clicked()
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_A,
                                  static_cast<uint8_t>(ui->spLightABrightness->value()),
                                  static_cast<uint16_t>(qMin(ui->spLightATime->value() * 10, 65535)),
+                                 ui->cbLightAKeep->isChecked(),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);
@@ -1149,6 +1283,7 @@ void ControlPanel::on_pbOpenLightB_clicked()
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_B,
                                  static_cast<uint8_t>(ui->spLightBBrightness->value()),
                                  static_cast<uint16_t>(qMin(ui->spLightBTime->value() * 10, 65535)),
+                                 ui->cbLightBKeep->isChecked(),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);
@@ -1187,6 +1322,7 @@ void ControlPanel::on_pbOpenLightC_clicked()
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_C,
                                  static_cast<uint8_t>(ui->spLightCBrightness->value()),
                                  static_cast<uint16_t>(qMin(ui->spLightCTime->value() * 10, 65535)),
+                                 ui->cbLightCKeep->isChecked(),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);
@@ -1224,6 +1360,7 @@ void ControlPanel::on_pbOpenLightD_clicked()
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_D,
                                  static_cast<uint8_t>(ui->spLightDBrightness->value()),
                                  static_cast<uint16_t>(qMin(ui->spLightDTime->value() * 10, 65535)),
+                                 ui->cbLightDKeep->isChecked(),
                                  qbtData, qbtRespond);
 
     emit sigLightOn(qbtData, qbtRespond);

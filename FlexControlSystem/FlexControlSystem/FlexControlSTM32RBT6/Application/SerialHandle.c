@@ -154,6 +154,18 @@ static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 		
 	pInfoWrite->s8ModifyCoeff = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 12) % UART_RECV_DATA_BUFFER_SIZE]);
+
+	// 数据域末尾的"无限时间"标志(2026-11-22 扩展): 1=无限, 0=按时间。
+	// 振动盘(0x03)数据域 12 字节、料仓(0x07)8 字节, 两者都追加在最后,
+	// 所以按长度域定位而不是写死下标: 标志位置 = 命令字 + 1(长度字节) + 数据长度
+	{
+		const uint8_t u8DataLen = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE];
+
+		if (u8DataLen >= 1)
+		{
+			pInfoWrite->u8InfiniteTime = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1 + u8DataLen) % UART_RECV_DATA_BUFFER_SIZE];
+		}
+	}
 }
 
 
@@ -167,6 +179,16 @@ static void ParseLightData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 
 	pInfoWrite->u16LightKeepTime = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE] << 8) |
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE]);
+
+	// 数据域末尾的"无限保持"标志(2026-11-22 扩展): 1=常亮, 0=按保持时间
+	{
+		const uint8_t u8DataLen = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE];
+
+		if (u8DataLen >= 1)
+		{
+			pInfoWrite->u8InfiniteTime = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1 + u8DataLen) % UART_RECV_DATA_BUFFER_SIZE];
+		}
+	}
 }
 
 
@@ -688,6 +710,12 @@ static void ParseNetworkMotionData(SerialInfo *pInfoWrite, const uint8_t *pFrame
 
 	// 与串口解析一致: 2 字节大端, 取低字节语义(协议范围 -50~50)
 	pInfoWrite->s8ModifyCoeff = (int8_t)(int16_t)(((uint16_t)pFrame[11] << 8) | pFrame[12]);
+
+	// 数据域末尾的"无限时间"标志(2026-11-22 扩展), 位置 = 1 + 数据长度
+	if (pFrame[1] >= 1)
+	{
+		pInfoWrite->u8InfiniteTime = pFrame[1 + pFrame[1]];
+	}
 }
 
 // 解析网络光源开启指令: data = 索引1B + 亮度1B + 保持时间2B(单位100ms)
@@ -696,6 +724,12 @@ static void ParseNetworkLightData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
 	pInfoWrite->u8LightIndex = pFrame[2];
 	pInfoWrite->u8LightBrightness = pFrame[3];
 	pInfoWrite->u16LightKeepTime = (uint16_t)(((uint16_t)pFrame[4] << 8) | pFrame[5]);
+
+	// 数据域末尾的"无限保持"标志(2026-11-22 扩展)
+	if (pFrame[1] >= 1)
+	{
+		pInfoWrite->u8InfiniteTime = pFrame[1 + pFrame[1]];
+	}
 }
 
 

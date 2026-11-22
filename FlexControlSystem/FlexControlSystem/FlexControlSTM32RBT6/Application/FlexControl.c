@@ -143,6 +143,7 @@ void MotorMotionHandler(const SerialInfo *pInfo)
 	sParams.fTimeUse = pInfo->fMotionTimeUse;
 	sParams.s16AngleOffset = pInfo->s16AngleOffset;
 	sParams.s8ModifyCoeff = pInfo->s8ModifyCoeff;
+	sParams.u8InfiniteTime = pInfo->u8InfiniteTime;
 	
 	SendMotorInfo(&sParams);
 }
@@ -169,6 +170,7 @@ void BinMotionHandler(const SerialInfo *pInfo)
 	sParams.fVoltage = pInfo->fMotionVoltage;
 	sParams.fFrequency = pInfo->fMotionFrequency;
 	sParams.fTimeUse = pInfo->fMotionTimeUse;
+	sParams.u8InfiniteTime = pInfo->u8InfiniteTime;
 
 	SendBinInfo(&sParams);
 }
@@ -196,7 +198,9 @@ void LightOnHandler(const SerialInfo *pInfo)
 	LightParams sParams;
 	sParams.u8Index = pInfo->u8LightIndex;
 	sParams.u8Brightness = pInfo->u8LightBrightness;
-	sParams.u16KeepTime = pInfo->u16LightKeepTime;
+	// "保持"勾选 = 无限保持。下位机本来就用"保持时间 0"表示常亮,
+	// 这里把标志折算成 0, 不需要给 LightControl 增加新的状态位。
+	sParams.u16KeepTime = pInfo->u8InfiniteTime ? 0 : pInfo->u16LightKeepTime;
 
 	SendLightInfo(&sParams);
 }

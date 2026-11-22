@@ -20,7 +20,7 @@ class ControlPanel : public QWidget
     Q_OBJECT
 
 public:
-    explicit ControlPanel(QWidget *parent = nullptr);
+    explicit ControlPanel(QWidget *parent = nullptr, const bool bFlatRun = false);
     ~ControlPanel();
 
     struct ButtonParams
@@ -116,6 +116,7 @@ private slots:
     void on_dspbVoltage_valueChanged(double arg1);
     void on_dspbFrequency_valueChanged(double arg1);
     void on_dspbTime_valueChanged(double arg1);
+    void on_cbMotionKeep_toggled(bool bChecked);
     void on_pbSendMotion_clicked();
     void on_pbSendMotionStop_clicked();
     void on_pbG1_clicked();

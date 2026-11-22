@@ -117,14 +117,40 @@
             </widget>
            </item>
            <item row="2" column="7">
-            <widget class="QDoubleSpinBox" name="dspbTime">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="singleStep">
-              <double>0.100000000000000</double>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="hblMotionTimeRow">
+             <item>
+              <widget class="QDoubleSpinBox" name="dspbTime">
+               <property name="minimumSize">
+                <size>
+                 <width>90</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>动作时长(秒)。勾选右侧"保持"时该值不再作为结束条件</string>
+               </property>
+               <property name="decimals">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <double>5000.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbMotionKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限时间动作"(标志位=1): 一直动作, 直到点停止</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="3" column="1">
             <widget class="QPushButton" name="pbVCentered">
@@ -379,11 +405,34 @@
             </widget>
            </item>
            <item row="4" column="1">
-            <widget class="QSpinBox" name="spLightBTime">
-             <property name="maximum">
-              <number>9999</number>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="hblLightBTimeRow">
+             <item>
+              <widget class="QSpinBox" name="spLightBTime">
+               <property name="minimumSize">
+                <size>
+                 <width>80</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+               </property>
+               <property name="maximum">
+                <number>5000</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbLightBKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="9" column="0">
             <spacer name="verticalSpacer_7">
@@ -420,11 +469,34 @@
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="QSpinBox" name="spLightATime">
-             <property name="maximum">
-              <number>9999</number>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="hblLightATimeRow">
+             <item>
+              <widget class="QSpinBox" name="spLightATime">
+               <property name="minimumSize">
+                <size>
+                 <width>80</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+               </property>
+               <property name="maximum">
+                <number>5000</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbLightAKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="1" column="0">
             <widget class="QLabel" name="label_3">
@@ -469,11 +541,34 @@
             </widget>
            </item>
            <item row="6" column="1">
-            <widget class="QSpinBox" name="spLightCTime">
-             <property name="maximum">
-              <number>9999</number>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="hblLightCTimeRow">
+             <item>
+              <widget class="QSpinBox" name="spLightCTime">
+               <property name="minimumSize">
+                <size>
+                 <width>80</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+               </property>
+               <property name="maximum">
+                <number>5000</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbLightCKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="7" column="1">
             <widget class="QSpinBox" name="spLightDBrightness">
@@ -483,11 +578,34 @@
             </widget>
            </item>
            <item row="8" column="1">
-            <widget class="QSpinBox" name="spLightDTime">
-             <property name="maximum">
-              <number>9999</number>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="hblLightDTimeRow">
+             <item>
+              <widget class="QSpinBox" name="spLightDTime">
+               <property name="minimumSize">
+                <size>
+                 <width>80</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+               </property>
+               <property name="maximum">
+                <number>5000</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbLightDKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="5" column="2">
             <widget class="QPushButton" name="pbOpenLightC">
@@ -576,7 +694,40 @@
             <widget class="QDoubleSpinBox" name="dspbBinVoltage"/>
            </item>
            <item row="2" column="1">
-            <widget class="QDoubleSpinBox" name="dspbBinTime"/>
+            <layout class="QHBoxLayout" name="hblBinTimeRow">
+             <item>
+              <widget class="QDoubleSpinBox" name="dspbBinTime">
+               <property name="minimumSize">
+                <size>
+                 <width>90</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>动作时长(秒)。勾选右侧"保持"时该值不再作为结束条件</string>
+               </property>
+               <property name="decimals">
+                <number>1</number>
+               </property>
+               <property name="maximum">
+                <double>5000.000000000000000</double>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="cbBinKeep">
+               <property name="toolTip">
+                <string>勾选后下发"无限时间动作"(标志位=1): 一直振动, 直到点停止</string>
+               </property>
+               <property name="text">
+                <string>保持</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item row="0" column="2">
             <spacer name="horizontalSpacer_3">
