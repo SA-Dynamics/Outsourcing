@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>636</width>
-    <height>352</height>
+    <width>703</width>
+    <height>428</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -127,7 +127,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>动作时长(秒)。勾选右侧"保持"时该值不再作为结束条件</string>
+                <string>动作时长(秒)。勾选右侧&quot;保持&quot;时该值不再作为结束条件</string>
                </property>
                <property name="decimals">
                 <number>1</number>
@@ -143,7 +143,7 @@
              <item>
               <widget class="QCheckBox" name="cbMotionKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限时间动作"(标志位=1): 一直动作, 直到点停止</string>
+                <string>勾选后下发&quot;无限时间动作&quot;(标志位=1): 一直动作, 直到点停止</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -415,7 +415,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+                <string>保持时间(秒)。勾选右侧&quot;保持&quot;时该值不再作为熄灭条件</string>
                </property>
                <property name="maximum">
                 <number>5000</number>
@@ -425,7 +425,7 @@
              <item>
               <widget class="QCheckBox" name="cbLightBKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+                <string>勾选后下发&quot;无限保持&quot;(标志位=1): 常亮, 直到点关闭</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -479,7 +479,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+                <string>保持时间(秒)。勾选右侧&quot;保持&quot;时该值不再作为熄灭条件</string>
                </property>
                <property name="maximum">
                 <number>5000</number>
@@ -489,7 +489,7 @@
              <item>
               <widget class="QCheckBox" name="cbLightAKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+                <string>勾选后下发&quot;无限保持&quot;(标志位=1): 常亮, 直到点关闭</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -551,7 +551,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+                <string>保持时间(秒)。勾选右侧&quot;保持&quot;时该值不再作为熄灭条件</string>
                </property>
                <property name="maximum">
                 <number>5000</number>
@@ -561,7 +561,7 @@
              <item>
               <widget class="QCheckBox" name="cbLightCKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+                <string>勾选后下发&quot;无限保持&quot;(标志位=1): 常亮, 直到点关闭</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -588,7 +588,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>保持时间(秒)。勾选右侧"保持"时该值不再作为熄灭条件</string>
+                <string>保持时间(秒)。勾选右侧&quot;保持&quot;时该值不再作为熄灭条件</string>
                </property>
                <property name="maximum">
                 <number>5000</number>
@@ -598,7 +598,7 @@
              <item>
               <widget class="QCheckBox" name="cbLightDKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限保持"(标志位=1): 常亮, 直到点关闭</string>
+                <string>勾选后下发&quot;无限保持&quot;(标志位=1): 常亮, 直到点关闭</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -704,7 +704,7 @@
                 </size>
                </property>
                <property name="toolTip">
-                <string>动作时长(秒)。勾选右侧"保持"时该值不再作为结束条件</string>
+                <string>动作时长(秒)。勾选右侧&quot;保持&quot;时该值不再作为结束条件</string>
                </property>
                <property name="decimals">
                 <number>1</number>
@@ -720,7 +720,7 @@
              <item>
               <widget class="QCheckBox" name="cbBinKeep">
                <property name="toolTip">
-                <string>勾选后下发"无限时间动作"(标志位=1): 一直振动, 直到点停止</string>
+                <string>勾选后下发&quot;无限时间动作&quot;(标志位=1): 一直振动, 直到点停止</string>
                </property>
                <property name="text">
                 <string>保持</string>
@@ -911,6 +911,174 @@
                </layout>
               </item>
              </layout>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="tab_4">
+        <attribute name="title">
+         <string>固件设置</string>
+        </attribute>
+        <layout class="QGridLayout" name="gridLayout_10">
+         <item row="0" column="0">
+          <layout class="QGridLayout" name="gridLayout_9">
+           <item row="7" column="1">
+            <widget class="QDoubleSpinBox" name="dspRightPhaseOffset"/>
+           </item>
+           <item row="11" column="1">
+            <widget class="QDoubleSpinBox" name="dspVGatherPhaseOffset"/>
+           </item>
+           <item row="9" column="0">
+            <widget class="QLabel" name="label_30">
+             <property name="text">
+              <string>水平居中-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="0">
+            <widget class="QLabel" name="label_17">
+             <property name="text">
+              <string>上-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="label_20">
+             <property name="text">
+              <string>下-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="label_19">
+             <property name="text">
+              <string>下-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="2">
+            <widget class="QPushButton" name="pbGetKeyParams">
+             <property name="text">
+              <string>获取配置</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel" name="label_28">
+             <property name="text">
+              <string>右-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="10" column="1">
+            <widget class="QDoubleSpinBox" name="dspVGatherStartPhaseLeading"/>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="label_21">
+             <property name="text">
+              <string>左-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="1">
+            <widget class="QDoubleSpinBox" name="dspHGatherStartPhaseLeading"/>
+           </item>
+           <item row="3" column="1">
+            <widget class="QDoubleSpinBox" name="dspDownPhaseOffset"/>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="label_27">
+             <property name="text">
+              <string>右-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QDoubleSpinBox" name="dspUpPhaseOffset"/>
+           </item>
+           <item row="0" column="1">
+            <widget class="QDoubleSpinBox" name="dspUpStartPhaseLeading"/>
+           </item>
+           <item row="10" column="0">
+            <widget class="QLabel" name="label_31">
+             <property name="text">
+              <string>垂直居中-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="0">
+            <widget class="QLabel" name="label_29">
+             <property name="text">
+              <string>水平居中-起始相位超前:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="2">
+            <widget class="QPushButton" name="pbSaveKeyParams">
+             <property name="text">
+              <string>保存配置</string>
+             </property>
+            </widget>
+           </item>
+           <item row="11" column="0">
+            <widget class="QLabel" name="label_32">
+             <property name="text">
+              <string>垂直居中-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="9" column="1">
+            <widget class="QDoubleSpinBox" name="dspHGatherPhaseOffset"/>
+           </item>
+           <item row="5" column="1">
+            <widget class="QDoubleSpinBox" name="dspLeftPhaseOffset"/>
+           </item>
+           <item row="4" column="1">
+            <widget class="QDoubleSpinBox" name="dspLeftStartPhaseLeading"/>
+           </item>
+           <item row="2" column="1">
+            <widget class="QDoubleSpinBox" name="dspDownStartPhaseLeading"/>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="label_26">
+             <property name="text">
+              <string>左-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="label_18">
+             <property name="text">
+              <string>上-相位偏移:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QDoubleSpinBox" name="dspRightStartPhaseLeading"/>
+           </item>
+           <item row="0" column="3">
+            <spacer name="horizontalSpacer_4">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item row="12" column="0" colspan="4">
+            <widget class="QLabel" name="lbKeyParamsStatus">
+             <property name="text">
+              <string>未获取：点“获取配置”读取下位机里的相位参数。</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
           </layout>

@@ -476,6 +476,16 @@ void ControlWidget::OnConnectiveState(const bool &bState)
 
         ui->tabControl->setEnabled(true);
 
+        // 连接成功: 放开固件参数页的"获取/保存配置"按钮(断连时会被收回)
+        if (m_pControlWidget != nullptr)
+        {
+            m_pControlWidget->SetKeyParamsAvailable(true);
+        }
+        if (m_pModeWidget != nullptr)
+        {
+            m_pModeWidget->SetKeyParamsAvailable(true);
+        }
+
         // 连接成功: 启动电压周期查询(2s 一次), 立即先发一帧
         if (m_pVoltageTimer != nullptr)
         {
@@ -514,6 +524,20 @@ void ControlWidget::OnConnectiveState(const bool &bState)
 void ControlWidget::CloseConnection(void)
 {
     ui->tabControl->setEnabled(false);
+
+    // 断连时在飞的指令不会再有完成帧(下面 disconnect() 还会把信号全掐掉),
+    // 控制面板的运动锁必须在这里复位, 否则重连后运动类型按钮/开始按钮一直停在禁用态
+    if (m_pControlWidget != nullptr)
+    {
+        m_pControlWidget->ResetMotionUiState();
+        m_pControlWidget->ResetKeyParamsUiState();
+    }
+
+    // "配置数据"窗口用的只读面板只有固件参数事务需要复位(运动锁本来就没用)
+    if (m_pModeWidget != nullptr)
+    {
+        m_pModeWidget->ResetKeyParamsUiState();
+    }
 
     // 断连后停止电压周期查询并恢复占位, 避免残留旧读数误导
     if (m_pVoltageTimer != nullptr)
@@ -594,6 +618,26 @@ void ControlWidget::SetConnectSlot(const bool bSet)
         // 光源保持时间到: 下位机自发关闭完成帧, 复位对应路光源按钮
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigLightOffFinish,
                 m_pControlWidget, &ControlPanel::OnLightOffFinish);
+
+        // 固件参数(0x15~0x18): 固件参数页只在"配置数据"窗口里可见, 而那个面板是
+        // m_pModeWidget(SetReadOnly 的实例), 所以两个面板都要接线 ——
+        // 谁在用都不会漏, 不在用的那个靠内部的 pending 标志丢弃非本次事务的应答
+        connect(m_pControlWidget, &ControlPanel::sigGetKeyParams,
+                m_ConnectiveHandler, &ConnectiveHandle::SendGetKeyParamsCommand);
+        connect(m_pControlWidget, &ControlPanel::sigSaveKeyParams,
+                m_ConnectiveHandler, &ConnectiveHandle::SendSaveKeyParamsCommand);
+        connect(m_pModeWidget, &ControlPanel::sigGetKeyParams,
+                m_ConnectiveHandler, &ConnectiveHandle::SendGetKeyParamsCommand);
+        connect(m_pModeWidget, &ControlPanel::sigSaveKeyParams,
+                m_ConnectiveHandler, &ConnectiveHandle::SendSaveKeyParamsCommand);
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigGetKeyParamsResult,
+                m_pControlWidget, &ControlPanel::OnGetKeyParamsResult);
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigGetKeyParamsResult,
+                m_pModeWidget, &ControlPanel::OnGetKeyParamsResult);
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigSaveKeyParamsResult,
+                m_pControlWidget, &ControlPanel::OnSaveKeyParamsResult);
+        connect(m_ConnectiveHandler, &ConnectiveHandle::sigSaveKeyParamsResult,
+                m_pModeWidget, &ControlPanel::OnSaveKeyParamsResult);
 
         // 保存IP 的结果(成功/失败/超时)由工作线程回传
         connect(m_ConnectiveHandler, &ConnectiveHandle::sigSaveIpResult,

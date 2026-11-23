@@ -6,6 +6,7 @@
 #include "LinkState.h"
 #include "Network.h"
 #include "SaveParams.h"
+#include "KeyParameters.h"
 #include "Timer.h"
 #include "PowerMonitor.h"
 #include "spi.h"
@@ -284,6 +285,53 @@ static void GetVoltageHandler(void)
 }
 
 
+/**
+ * @brief  获取固件参数, 回 0x16 + 49 字节
+ * @note   数据域 = 首字节状态 + 48 字节(12 个 float 大端)。
+ *         GetKeyParams() 内部先铺默认值再读 Flash, 所以无论 Flash 有效与否,
+ *         这里都能拿到一组合法参数; 状态字节只是告诉上位机"这是 Flash 里的还是默认值"。
+ *         0 = 读自 Flash(有效), 1 = Flash 无效, 回的是默认值。
+ */
+static void GetKeyParamsHandler(void)
+{
+	uint8_t au8Data[1 + KEY_PARAMS_DATA_LEN];
+
+	au8Data[0] = (GetKeyParams() != false) ? 0 : 1;
+	KeyParamsPack(&g_sKeyParams, &au8Data[1]);
+
+	SendSerialRespond(RESPOND_GET_KEY_PARAMS, au8Data);
+}
+
+
+/**
+ * @brief  保存固件参数到 Flash, 按结果回 0x18
+ * @param  pInfo 解析结果, u8KeyParams 为 48 字节裸数据(12 个 float 大端)
+ * @note   1) 与保存IP 一样, 擦页期间 CPU 从 Flash 取指会停顿 20~40ms,
+ *            所以先停执行器, 保证停顿发生时没有电机在动;
+ *         2) 应答语义与保存IP 相反: 0x18 的 0 = 成功, 1 = 失败
+ *            (协议原文如此, 两端都必须按协议来, 不要"顺手改成 1=成功")。
+ */
+static void SaveKeyParamsHandler(const SerialInfo *pInfo)
+{
+	KeyParams sParams;
+	uint8_t u8Result = 1;	// 默认失败: 解包失败或写 Flash 失败都回 1
+
+	if (KeyParamsUnpack(pInfo->u8KeyParams, &sParams) != false)
+	{
+		MotorControlStop();
+		BinControlStop();
+		LightControlStop(LIGHT_INDEX_ALL);
+
+		if (SaveKeyParams(&sParams) != false)
+		{
+			u8Result = 0;
+		}
+	}
+
+	SendSerialRespond(RESPOND_SAVE_KEY_PARAMS, &u8Result);
+}
+
+
 void SerialRecvInfoHandle(void)
 {
 	static SerialInfo sSerialInfo;
@@ -338,6 +386,14 @@ void SerialRecvInfoHandle(void)
 				GetVoltageHandler();
 				break;
 
+			case INFO_GET_KEY_PARAMS:
+				GetKeyParamsHandler();
+				break;
+
+			case INFO_SAVE_KEY_PARAMS:
+				SaveKeyParamsHandler(&sSerialInfo);
+				break;
+
 			default:
 				break;
 		}
@@ -389,6 +445,11 @@ void FlexControlInit(void)
 
 	// 先读 Flash 参数: NetworkInit 要用里面保存的 IP
 	SaveParamsInit();
+
+	// 相位参数也在这里读一次: 上位机连上之前电机就可能收到运动指令,
+	// 不能等到第一条 0x15 才填 g_sKeyParams(未填时是 BSS 清零的全 0 相位)。
+	// 只读 Flash 不写, 失败也只是回默认值, 不影响启动流程。
+	GetKeyParams();
 
 	SerialHandleInit();
 	LinkStateInit();

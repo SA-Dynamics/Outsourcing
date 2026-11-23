@@ -204,6 +204,20 @@ static void ParseIpData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 
 
 
+// 解析保存固件参数指令(0x17): 数据域 = 标志 1 字节 + 48 字节(12 个 float 大端)
+// 标志字节(协议固定 1)只用于语义区分, 这里不保存; 48 字节原样搬运,
+// 解释成 12 个 float 由 FlexControl 调 KeyParamsUnpack 完成
+static void ParseSerialKeyParamsData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
+{
+	for (uint8_t i = 0; i < KEY_PARAMS_DATA_LEN; i++)
+	{
+		pInfoWrite->u8KeyParams[i] =
+			pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3 + i) % UART_RECV_DATA_BUFFER_SIZE];
+	}
+}
+
+
+
 void ParseUartData(SerialDataType *pSerial)
 {
 	SerialInfo sInfo;
@@ -271,6 +285,23 @@ void ParseUartData(SerialDataType *pSerial)
 			sInfo.eInfo = INFO_GET_VOLTAGE;
 			break;
 
+		// 获取固件参数: 数据域 1 字节(固定 0x01), 应答 0x16 带 1 状态 + 48 字节 float
+		case 0x15:
+			sInfo.eInfo = INFO_GET_KEY_PARAMS;
+			break;
+
+		// 保存固件参数: 数据域固定 49 字节(标志 1 + 12 个 float), 长度不符直接丢弃,
+		// 否则按错位的数据写 Flash 会把相位参数写成垃圾值
+		case 0x17:
+			if (pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE] !=
+				(uint8_t)(1 + KEY_PARAMS_DATA_LEN))
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_KEY_PARAMS;
+			ParseSerialKeyParamsData(&sInfo, pSerial);
+			break;
+
 		default:
 			return;
 	}
@@ -292,6 +323,72 @@ void ParseUartData(SerialDataType *pSerial)
 }
 
 
+/*
+ * 2026-11-23 新增: 判断 readIndex 处这一帧是否已经"整帧收齐"。
+ *
+ * 背景: 接收状态机原来是"找到帧头 -> 逐字节扫描找帧尾 AA 55"的写法。
+ * 帧短(≤十几字节)时一帧总是一次到齐, 没问题; 但 0x17(保存固件参数)是 57 字节,
+ * USB 转 485 适配器通常按 64 字节分包, 很容易被 DMA/IDLE 切成两段到达:
+ * 前半段扫到数据边界时状态机放弃, 而 readIndex 已经前进到帧中间,
+ * 后半段到达后从帧中间找不到 0x55 AA, 整帧被逐字节丢弃 -> 下位机不回 0x18,
+ * 上位机表现就是"保存超时"(0x15 只有 9 字节, 永远一包发完, 所以不超时)。
+ *
+ * 修法: 进入扫描前先按长度域算出整帧长度(数据域长度 + 8), 没收齐就原样等,
+ * readIndex 保持在帧头不动, 下一批数据到了重新判断 —— 切几段都不丢。
+ */
+static bool UartRecvFrameReady(SerialDataType *pSerial, uint16_t *pu16FrameLen)
+{
+	uint16_t u16Avail;
+	uint16_t u16Len;
+
+	if (pu16FrameLen != NULL)
+	{
+		*pu16FrameLen = 0u;		/* 0 = 长度未知, 调用方退回"扫描帧尾"的老路径 */
+	}
+
+	if (pSerial->sRecv.u16WriteIndex >= pSerial->sRecv.u16ReadIndex)
+	{
+		u16Avail = (uint16_t)(pSerial->sRecv.u16WriteIndex - pSerial->sRecv.u16ReadIndex);
+	}
+	else
+	{
+		u16Avail = (uint16_t)(UART_RECV_DATA_BUFFER_SIZE - pSerial->sRecv.u16ReadIndex + pSerial->sRecv.u16WriteIndex);
+	}
+
+	/* 连"命令字 + 长度字节"都还没到, 只能等 */
+	if (u16Avail < 4u)
+	{
+		return false;
+	}
+
+	/* 长度字节位置 = 帧头 + 0x55 + 0xAA + 命令字 之后 */
+	u16Len = (uint16_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16ReadIndex + 3) % UART_RECV_DATA_BUFFER_SIZE] + 8u;
+
+	/*
+	 * 长度域异常(超过半个缓冲; 当前协议最长帧 57 字节): 当作假帧头处理,
+	 * 直接判"已就绪"交给调用方去扫帧尾 —— 扫不到自然丢一字节重新找头,
+	 * 避免在这里死等一个永远凑不齐的字节数。
+	 * 此时不输出长度(*pu16FrameLen 保持 0), 调用方走兜底路径。
+	 */
+	if (u16Len > (UART_RECV_DATA_BUFFER_SIZE / 2u))
+	{
+		return true;
+	}
+
+	if (u16Avail < u16Len)
+	{
+		return false;
+	}
+
+	if (pu16FrameLen != NULL)
+	{
+		*pu16FrameLen = u16Len;
+	}
+
+	return true;
+}
+
+
 static void UartRecvBufferHandler(SerialDataType *pSerial)
 {
     enum
@@ -302,7 +399,7 @@ static void UartRecvBufferHandler(SerialDataType *pSerial)
         FIND_FRAME_TAIL,
         PARSE_DATA,
     };
-    static uint8_t u8DataLen = 0;
+    static uint16_t u16FrameLen = 0;	/* 当前帧整帧长度, 由 FIND_FRAME_HEAD 算好后交给 PARSE_DATA */
 
     switch (pSerial->sRecv.u8FSMStep)
     {
@@ -318,7 +415,7 @@ static void UartRecvBufferHandler(SerialDataType *pSerial)
         case UPDATE_WRITE_INDEX:
 			// 计算写索引在buffer中的位置
             pSerial->sRecv.u16WriteIndex = 
-                UART_RECV_DATA_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(pSerial->sRecv.hdma);
+                (uint16_t)((UART_RECV_DATA_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(pSerial->sRecv.hdma)) % UART_RECV_DATA_BUFFER_SIZE);
             
 			// 计算接收了多少个数据
 			uint16_t u16Diff = (pSerial->sRecv.u16WriteIndex >= pSerial->sRecv.u16ReadIndex) ? 
@@ -341,7 +438,23 @@ static void UartRecvBufferHandler(SerialDataType *pSerial)
             if (0x55 == pSerial->sRecv.u8RecvBuffer[pSerial->sRecv.u16ReadIndex] && 
 				0xAA == pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16ReadIndex + 1) % UART_RECV_DATA_BUFFER_SIZE])
             {                
-                pSerial->sRecv.u8FSMStep = FIND_FRAME_TAIL;
+                /* 2026-11-23: 整帧没收齐就退回等数据, readIndex 保持在帧头不动。
+                 * 否则长帧被切成两段时, 扫描会在数据边界放弃并把帧头位置丢掉,
+                 * 后半段到达后从帧中间找不到 0x55 AA, 整帧被丢弃(见 UartRecvFrameReady 注释)。 */
+                if (UartRecvFrameReady(pSerial, &u16FrameLen) != true)
+                {
+                    pSerial->sRecv.u8FSMStep = UPDATE_WRITE_INDEX;
+                    break;
+                }
+
+                /*
+                 * 整帧已收齐且长度已知: 直接进解析, 不再逐字节扫描帧尾。
+                 * 扫描帧尾会被数据域里巧合出现的 AA 55 提前截断 —— 0x17 的 48 字节
+                 * 是任意 float 数据(用户填什么就是什么), 出现该组合是现实的,
+                 * 一旦截断, readIndex 就会停在帧中间, 后续帧全部错位。
+                 * 长度未知(假帧头)时才退回老路径。
+                 */
+                pSerial->sRecv.u8FSMStep = (u16FrameLen != 0u) ? PARSE_DATA : FIND_FRAME_TAIL;
 				
 				// 获取数据所在位置
 				pSerial->sRecv.u16DataIndex = (pSerial->sRecv.u16ReadIndex + 2) % UART_RECV_DATA_BUFFER_SIZE;
@@ -386,7 +499,17 @@ static void UartRecvBufferHandler(SerialDataType *pSerial)
             ParseUartData(pSerial);			
 		
 			// 把读索引更新到下一帧的开头位置
-            pSerial->sRecv.u16ReadIndex = (pSerial->sRecv.u16ReadIndex + 2) % UART_RECV_DATA_BUFFER_SIZE;
+            if (u16FrameLen != 0u)
+            {
+                // 长度已知: 直接跳过整帧, 不受数据域内容影响
+                pSerial->sRecv.u16ReadIndex = (uint16_t)((pSerial->sRecv.u16ReadIndex + u16FrameLen) % UART_RECV_DATA_BUFFER_SIZE);
+                u16FrameLen = 0u;
+            }
+            else
+            {
+                // 兜底: 走扫描帧尾路径时 readIndex 停在帧尾 AA 上, 前进 2 字节即下一帧开头
+                pSerial->sRecv.u16ReadIndex = (pSerial->sRecv.u16ReadIndex + 2) % UART_RECV_DATA_BUFFER_SIZE;
+            }
 
             if (pSerial->sRecv.u16ReadIndex == pSerial->sRecv.u16WriteIndex)
             {
@@ -493,7 +616,9 @@ static void SendMotionFinish(uint8_t u8Index)
 
 // 通用应答组帧: 55 AA | cmd | len | data | 校验高 | 校验低 | AA 55
 // 校验 = cmd 起累加取反加一, 与上位机 AddCheckSum 规则一致
-#define RESPOND_FRAME_MAX_SIZE		16
+// 2026-11-23 由 16 放大到 64: 0x16(获取固件参数)数据域 49 字节, 整帧 57 字节,
+// 16 字节的栈缓冲会直接溢出; 这个宏必须 >= 8 + 最长的数据域
+#define RESPOND_FRAME_MAX_SIZE		64
 static void SaveRespondFrame(const uint8_t u8Cmd, const uint8_t *pData, const uint8_t u8DataLen)
 {
 	uint8_t u8Buffer[RESPOND_FRAME_MAX_SIZE] = {0};
@@ -606,6 +731,17 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 			SaveRespondFrame(0x14, au8Volt, 2);
 			break;
 		}
+
+		case RESPOND_GET_KEY_PARAMS:
+			// 获取固件参数反馈: 0x16, 数据域 49 字节
+			// (首字节 = 0 表示来自 Flash / 非 0 表示 Flash 无效回的是默认值, 后 48 字节为 12 个 float)
+			SaveRespondFrame(0x16, (const uint8_t *)pParams, (uint8_t)(1 + KEY_PARAMS_DATA_LEN));
+			break;
+
+		case RESPOND_SAVE_KEY_PARAMS:
+			// 保存固件参数反馈: 0x18, 数据域 1 字节(0=保存成功, 1=保存失败)
+			SaveRespondFrame(0x18, (const uint8_t *)pParams, 1);
+			break;
 
 		default:
 			break;
@@ -805,6 +941,22 @@ void SerialHandleNetworkFrame(const uint8_t *pFrame, const uint8_t u8Len)
 		// 获取电压: 数据域 1 字节(固定 0x01), 应答 0x14 带 2 字节 电压x10
 		case 0x13:
 			sInfo.eInfo = INFO_GET_VOLTAGE;
+			break;
+
+		// 获取固件参数: 数据域 1 字节(固定 0x01), 应答 0x16 带 1 状态 + 48 字节 float
+		case 0x15:
+			sInfo.eInfo = INFO_GET_KEY_PARAMS;
+			break;
+
+		// 保存固件参数: 数据域固定 49 字节, 长度不符直接丢弃(与串口路径一致)
+		case 0x17:
+			if (pFrame[1] != (uint8_t)(1 + KEY_PARAMS_DATA_LEN))
+			{
+				return;
+			}
+			sInfo.eInfo = INFO_SAVE_KEY_PARAMS;
+			/* pFrame[2] 是标志字节(协议固定 1), 数据从 pFrame[3] 起 */
+			memcpy(sInfo.u8KeyParams, &pFrame[3], KEY_PARAMS_DATA_LEN);
 			break;
 
 		default:

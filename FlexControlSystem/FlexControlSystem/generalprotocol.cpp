@@ -1,7 +1,39 @@
 #include "generalprotocol.h"
 #include <QDebug>
+#include <cstring>
 
 using namespace GeneralProtocolItems;
+
+
+// 把一个 float 按 IEEE754 大端追加到字节数组(协议 0x16/0x17 用的就是这种"网络字节序")
+// 注意: 不能直接 append(reinterpret_cast<const char*>(&f), 4) —— 那是小端机器的内存布局,
+// 下位机按大端解析会得到完全不同的数值
+static void AppendFloatBigEndian(QByteArray &qbtData, const float fValue)
+{
+    uint32_t u32Bits = 0;
+    memcpy(&u32Bits, &fValue, sizeof(u32Bits));
+
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Bits >> 24) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Bits >> 16) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Bits >> 8) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>(u32Bits & 0xFFu)));
+}
+
+
+// 从字节数组的 iOffset 处按大端读一个 float
+static float ReadFloatBigEndian(const QByteArray &qbtData, const int iOffset)
+{
+    const uint32_t u32Bits =
+            (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset))) << 24) |
+            (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 1))) << 16) |
+            (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 2))) << 8) |
+             static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 3)));
+
+    float fValue = 0.0f;
+    memcpy(&fValue, &u32Bits, sizeof(fValue));
+
+    return fValue;
+}
 
 //GeneralProtocol::GeneralProtocol()
 //{
@@ -460,5 +492,95 @@ void GeneralProtocol::GetIpProtocol(QByteArray &qbtCmd)
     qbtCmd.append(u8FRAME_TAIL2);
 
     qDebug() << "get ip cmd:" << qbtCmd.toHex();
+}
+
+
+// 12 个 float -> 48 字节大端(协议 0x16/0x17 数据域主体)
+// 顺序必须与 GeneralKeyParams::KeyParams 的定义、下位机 KeyParamsPack() 完全一致
+void GeneralProtocol::KeyParamsToBytes(const GeneralKeyParams::KeyParams &sParams, QByteArray &qbtData)
+{
+    AppendFloatBigEndian(qbtData, sParams.fUpStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fUpPhaseOffset);
+    AppendFloatBigEndian(qbtData, sParams.fDownStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fDownPhaseOffset);
+    AppendFloatBigEndian(qbtData, sParams.fLeftStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fLeftPhaseOffset);
+    AppendFloatBigEndian(qbtData, sParams.fRightStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fRightPhaseOffset);
+    AppendFloatBigEndian(qbtData, sParams.fHGatherStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fHGatherPhaseOffset);
+    AppendFloatBigEndian(qbtData, sParams.fVGatherStartPhaseLeading);
+    AppendFloatBigEndian(qbtData, sParams.fVGatherPhaseOffset);
+}
+
+
+// 48 字节大端 -> 12 个 float; 长度不够直接判失败(调用方据此提示"数据不完整")
+bool GeneralProtocol::KeyParamsFromBytes(const QByteArray &qbtData, GeneralKeyParams::KeyParams &sParams)
+{
+    const int iLen = static_cast<int>(iKEY_PARAMS_DATA_LEN);
+
+    if (qbtData.size() < iLen)
+    {
+        return false;
+    }
+
+    sParams.fUpStartPhaseLeading      = ReadFloatBigEndian(qbtData, 0);
+    sParams.fUpPhaseOffset            = ReadFloatBigEndian(qbtData, 4);
+    sParams.fDownStartPhaseLeading    = ReadFloatBigEndian(qbtData, 8);
+    sParams.fDownPhaseOffset          = ReadFloatBigEndian(qbtData, 12);
+    sParams.fLeftStartPhaseLeading    = ReadFloatBigEndian(qbtData, 16);
+    sParams.fLeftPhaseOffset          = ReadFloatBigEndian(qbtData, 20);
+    sParams.fRightStartPhaseLeading   = ReadFloatBigEndian(qbtData, 24);
+    sParams.fRightPhaseOffset         = ReadFloatBigEndian(qbtData, 28);
+    sParams.fHGatherStartPhaseLeading = ReadFloatBigEndian(qbtData, 32);
+    sParams.fHGatherPhaseOffset       = ReadFloatBigEndian(qbtData, 36);
+    sParams.fVGatherStartPhaseLeading = ReadFloatBigEndian(qbtData, 40);
+    sParams.fVGatherPhaseOffset       = ReadFloatBigEndian(qbtData, 44);
+
+    return true;
+}
+
+
+// 获取固件参数(0x15): 数据域 1 字节 0x01; 下位机回 0x16 + 49 字节
+// 应答内容随参数变化, 不生成期望帧, 由 ConnectiveHandle 按命令码匹配
+void GeneralProtocol::GetKeyParamsProtocol(QByteArray &qbtCmd)
+{
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_GET_KEY_PARAMS_CMD);
+    qbtCmd.append(uint8_t(1));
+    qbtCmd.append(uint8_t(0x01));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "get key params cmd:" << qbtCmd.toHex();
+}
+
+
+// 保存固件参数(0x17): 数据域 49 字节 = 标志 1 + 12 个 float(48 字节大端)
+// 下位机写完 Flash 回 0x18(0=成功 1=失败), 两种应答也不预构造期望帧
+void GeneralProtocol::SaveKeyParamsProtocol(const GeneralKeyParams::KeyParams &sParams, QByteArray &qbtCmd)
+{
+    QByteArray qbtData;
+    KeyParamsToBytes(sParams, qbtData);
+
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_SAVE_KEY_PARAMS_CMD);
+    qbtCmd.append(uint8_t(1 + iKEY_PARAMS_DATA_LEN));
+    qbtCmd.append(u8SAVE_KEY_PARAMS_FLAG);
+    qbtCmd.append(qbtData);
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "save key params data:" << qbtCmd.toHex();
 }
 

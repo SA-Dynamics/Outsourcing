@@ -37,6 +37,33 @@ namespace GeneralMotion
     };
 }
 
+namespace GeneralKeyParams
+{
+    // 固件参数(下位机 KeyParameters.c): 6 组动作各两个相位参数, 全部 float。
+    // 协议 0x16/0x17 的数据域按这个顺序排列, 每组 2 个 float(起始相位超前 + 相位偏移),
+    // 顺序: 上 / 下 / 左 / 右 / 水平居中 / 垂直居中。
+    // 12 个 float = 48 字节, 一律 IEEE754 大端(on-the-wire 格式, 与下位机 memcpy+移位 一致)
+    struct KeyParams
+    {
+        float fUpStartPhaseLeading;
+        float fUpPhaseOffset;
+        float fDownStartPhaseLeading;
+        float fDownPhaseOffset;
+        float fLeftStartPhaseLeading;
+        float fLeftPhaseOffset;
+        float fRightStartPhaseLeading;
+        float fRightPhaseOffset;
+        float fHGatherStartPhaseLeading;
+        float fHGatherPhaseOffset;
+        float fVGatherStartPhaseLeading;
+        float fVGatherPhaseOffset;
+    };
+
+    // 12 个 float 的裸数据长度(协议 0x16/0x17 数据域里除首字节标志外的部分)
+    constexpr int iDataLen = 48;
+}
+
+
 class ProtocolHandle : public QObject
 {
     Q_OBJECT
@@ -96,6 +123,18 @@ public:
     // 应答由 ConnectiveHandle 按命令码 0x14 匹配
     virtual void GetVoltageProtocol(QByteArray &qbtCmd)
     { Q_UNUSED(qbtCmd); }
+
+    // 获取固件参数(0x15/0x16): 下发 1 字节 0x01, 应答 49 字节
+    // (首字节 0=成功/1=失败, 后 48 字节 = 12 个 float 大端),
+    // 内容随参数变化无法预构造期望帧, 应答由 ConnectiveHandle 按命令码 0x16 匹配
+    virtual void GetKeyParamsProtocol(QByteArray &qbtCmd)
+    { Q_UNUSED(qbtCmd); }
+
+    // 保存固件参数(0x17/0x18): 下发 49 字节(首字节固定 1 + 48 字节 float 大端),
+    // 应答 1 字节 0=成功/1=失败(注意与保存IP 的 1=成功 相反),
+    // 应答由 ConnectiveHandle 按命令码 0x18 匹配
+    virtual void SaveKeyParamsProtocol(const GeneralKeyParams::KeyParams &sParams, QByteArray &qbtCmd)
+    { Q_UNUSED(sParams); Q_UNUSED(qbtCmd); }
 };
 
 

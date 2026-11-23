@@ -50,6 +50,15 @@ public slots:
     // 结果通过 sigGetVoltageResult 回传(电压x10, 原始整型; 超时静默不上报)
     void SendGetVoltageCommand(void);
 
+    // 获取固件参数(0x15): 无参数, 应答 0x16 是 49 字节变长内容, 按命令码匹配
+    // 结果通过 sigGetKeyParamsResult 回传(状态 + 48 字节裸数据)
+    void SendGetKeyParamsCommand(void);
+
+    // 保存固件参数(0x17): 帧由界面按 GeneralProtocol 组好(49 字节数据域),
+    // 应答 0x18 只有 1 字节(0=成功 1=失败), 同样按命令码匹配
+    // 结果通过 sigSaveKeyParamsResult 回传(1=成功 0=失败 -1=超时)
+    void SendSaveKeyParamsCommand(const QByteArray &qbtData);
+
     // 线程收尾: 在对象所属线程内停止全部定时器并关闭底层通道
     // 由 QThread::finished 直接触发(同线程直连执行), 避免跨线程 killTimer 警告
     void Shutdown(void);
@@ -74,6 +83,16 @@ signals:
 
     // 获取电压结果: 电压x10 原始整型(如 241 = 24.1V), 由界面自行换算显示
     void sigGetVoltageResult(const quint16 &u16VoltX10);
+
+    // 获取固件参数结果:
+    //   u8Status = 0       下位机 Flash 里有有效参数(内容即 Flash 值)
+    //   u8Status = 非 0    下位机 Flash 无效, 回的是固件默认值
+    //   u8Status = 0xFF    应答超时, qbtData 为空
+    //   qbtData          协议 0x16 数据域里的 48 字节(12 个 float 大端), 由界面自行解码
+    void sigGetKeyParamsResult(const quint8 &u8Status, const QByteArray &qbtData);
+
+    // 保存固件参数结果: 1=下位机写入 Flash 成功, 0=写入失败, -1=应答超时
+    void sigSaveKeyParamsResult(const int &iResult);
 
 protected:
     // 打开连接(串口/TCP), 成功返回 true, 失败返回 false
@@ -116,7 +135,7 @@ private:
 
     enum class SendCmdType { HeartBeat, MotionCmd, StopMotion,
                              BinMotion, BinStopMotion, LightOn, LightOff, SaveIp, GetIp,
-                             GetVoltage };
+                             GetVoltage, GetKeyParams, SaveKeyParams };
 
     struct SendCmdStruct
     {
@@ -151,6 +170,15 @@ private:
     // 获取电压 应答里解析出来的 电压x10 整型, 由接收匹配写入、
     // 引擎在收到应答后随 sigGetVoltageResult 一起发出
     quint16 m_u16VoltageX10 = 0;
+
+    // 获取固件参数 应答里解析出来的状态字节与 48 字节裸数据,
+    // 由接收匹配写入、引擎在收到应答后随 sigGetKeyParamsResult 一起发出
+    quint8 m_u8GetKeyStatus = 0xFF;
+    QByteArray m_qbtGetKeyData;
+
+    // 保存固件参数 应答里解析出来的结果(0=成功 1=失败),
+    // 由接收匹配写入、引擎在收到应答后换算成 1/0 随 sigSaveKeyParamsResult 发出
+    bool m_bSaveKeyOk = false;
 };
 
 #endif // CONNECTIVEHANDLE_H

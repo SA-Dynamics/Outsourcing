@@ -21,6 +21,10 @@
 #define GET_IP_TIMEOUT_MS           2000
 // 获取电压 应答超时 ms: 同为纯查询, 2s 足够; 周期轮询下超时静默清队列
 #define GET_VOLTAGE_TIMEOUT_MS      2000
+// 获取固件参数 应答超时 ms: 纯查询(下位机只是把 RAM 里的结构体打包), 2s 足够
+#define GET_KEY_PARAMS_TIMEOUT_MS   2000
+// 保存固件参数 应答超时 ms: 下位机擦一页 Flash + 逐半字编程 + 回读校验, 与保存IP 同量级
+#define SAVE_KEY_PARAMS_TIMEOUT_MS  3000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
 // 无限时间动作(0x03/0x07 数据域末尾标志=1)的响应超时 ms。
@@ -60,6 +64,8 @@ ConnectiveHandle::ConnectiveHandle(QObject *parent)
         {SendCmdType::SaveIp, {}},
         {SendCmdType::GetIp, {}},
         {SendCmdType::GetVoltage, {}},
+        {SendCmdType::GetKeyParams, {}},
+        {SendCmdType::SaveKeyParams, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
@@ -374,6 +380,68 @@ void ConnectiveHandle::SendGetVoltageCommand(void)
 }
 
 
+// 获取固件参数: 应答 0x16 是 49 字节变长内容, 按命令码匹配(与获取电压同构)
+// 与电压不同: 这是用户手动点出来的, 超时必须回报(界面要解除按钮禁用并提示), 不能静默
+void ConnectiveHandle::SendGetKeyParamsCommand(void)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    // 上一次还没回就再点: 不堆叠, 直接让上一次的超时逻辑收尾
+    if (!m_qmapSendBuffer[SendCmdType::GetKeyParams].isEmpty())
+    {
+        return;
+    }
+
+    QByteArray qbtCmd;
+    m_pProtocol->GetKeyParamsProtocol(qbtCmd);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtCmd;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = GET_KEY_PARAMS_TIMEOUT_MS;
+
+    m_u8GetKeyStatus = 0xFF;
+    m_qbtGetKeyData.clear();
+
+    qDebug() << "send get key params";
+    m_qmapSendBuffer[SendCmdType::GetKeyParams].append(sSendStruct);
+}
+
+
+// 保存固件参数: 帧由界面组好(49 字节数据域), 应答 0x18 只有 1 字节, 按命令码匹配
+void ConnectiveHandle::SendSaveKeyParamsCommand(const QByteArray &qbtData)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    if (!m_qmapSendBuffer[SendCmdType::SaveKeyParams].isEmpty())
+    {
+        return;
+    }
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtData;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = SAVE_KEY_PARAMS_TIMEOUT_MS;
+
+    m_bSaveKeyOk = false;
+
+    qDebug() << "send save key params";
+    m_qmapSendBuffer[SendCmdType::SaveKeyParams].append(sSendStruct);
+}
+
+
 // ============================ 引擎: 发送/应答/超时 ============================
 void ConnectiveHandle::OnEngineTick(void)
 {
@@ -663,6 +731,61 @@ void ConnectiveHandle::OnEngineTick(void)
             sGetVoltage.clear();
         }
     }
+
+    // ---- 获取固件参数(应答 0x16, 状态与 48 字节数据由接收匹配写入) ----
+    QVector<SendCmdStruct> &sGetKey = m_qmapSendBuffer[SendCmdType::GetKeyParams];
+    if (!sGetKey.isEmpty())
+    {
+        SendCmdStruct &sItem = sGetKey.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sGetKey.removeFirst();
+            emit sigGetKeyParamsResult(m_u8GetKeyStatus, m_qbtGetKeyData);
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 手动操作: 超时必须回报 0xFF, 界面才能解除按钮禁用
+            qDebug() << "get key params respond timeout";
+            sGetKey.clear();
+            emit sigGetKeyParamsResult(0xFF, QByteArray());
+        }
+    }
+
+    // ---- 保存固件参数(应答 0x18, 结果由接收匹配写入 m_bSaveKeyOk) ----
+    QVector<SendCmdStruct> &sSaveKey = m_qmapSendBuffer[SendCmdType::SaveKeyParams];
+    if (!sSaveKey.isEmpty())
+    {
+        SendCmdStruct &sItem = sSaveKey.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sSaveKey.removeFirst();
+            emit sigSaveKeyParamsResult(m_bSaveKeyOk ? 1 : 0);
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            qDebug() << "save key params respond timeout";
+            sSaveKey.clear();
+            emit sigSaveKeyParamsResult(-1);
+        }
+    }
 }
 
 
@@ -807,6 +930,26 @@ void ConnectiveHandle::RecvMessageHandle(void)
                     (static_cast<uint8_t>(qbtFrame.at(4)) << 8) |
                      static_cast<uint8_t>(qbtFrame.at(5)));
         m_qmapSendBuffer[SendCmdType::GetVoltage].first().bRespond = true;
+    }
+    // 获取固件参数: 应答 0x16 数据域 49 字节 = 状态 1B + 12 个 float(48B),
+    // 内容随参数变化不能整帧比对, 按命令码 + 长度识别
+    else if (!m_qmapSendBuffer[SendCmdType::GetKeyParams].isEmpty() &&
+             qbtFrame.size() >= 8 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_GET_KEY_PARAMS_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == (1 + GeneralProtocolItems::iKEY_PARAMS_DATA_LEN))
+    {
+        m_u8GetKeyStatus = static_cast<uint8_t>(qbtFrame.at(4));
+        m_qbtGetKeyData = qbtFrame.mid(5, GeneralProtocolItems::iKEY_PARAMS_DATA_LEN);
+        m_qmapSendBuffer[SendCmdType::GetKeyParams].first().bRespond = true;
+    }
+    // 保存固件参数: 应答 0x18 数据域 1 字节(0=成功 1=失败), 按命令码 + 长度识别
+    else if (!m_qmapSendBuffer[SendCmdType::SaveKeyParams].isEmpty() &&
+             qbtFrame.size() >= 7 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_SAVE_KEY_PARAMS_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == 1)
+    {
+        m_bSaveKeyOk = (static_cast<uint8_t>(qbtFrame.at(4)) == GeneralProtocolItems::u8SAVE_KEY_PARAMS_SUCCESS);
+        m_qmapSendBuffer[SendCmdType::SaveKeyParams].first().bRespond = true;
     }
 
     qDebug() << "remove recv info" << qbtFrame;

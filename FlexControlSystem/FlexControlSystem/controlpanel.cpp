@@ -14,6 +14,7 @@
 #include <QGroupBox>
 #include <QGridLayout>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 
 
 
@@ -195,14 +196,7 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
         {
             qWarning() << "motion sequence watchdog timeout, force reset";
             ResetMotionSequence();
-
-            if (!m_bReadOnly)
-            {
-                ui->pbSendMotion->setEnabled(true);
-                ui->pbSendMotionStop->setEnabled(false);
-                ui->pbG1->setEnabled(true);
-                ui->pbG2->setEnabled(true);
-            }
+            RestoreIdleButtons();
         }
     });
 
@@ -227,24 +221,29 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
             ResetMotionSequence();   // 计数归零, 序列正常结束, 落入下方统一恢复
         }
 
-        // 统一恢复: 振动盘 / 料仓 / 光源 / 组合运动按钮回到空闲态
-        ui->pbSendMotion->setEnabled(true);
-        ui->pbSendMotionStop->setEnabled(false);
-        ui->pbG1->setEnabled(true);
-        ui->pbG2->setEnabled(true);
-        ui->pbBinStartMotion->setEnabled(true);
-        ui->pbBinStopMotion->setEnabled(false);
-        ui->pbOpenLightA->setEnabled(true);
-        ui->pbCloseLightA->setEnabled(false);
-        ui->pbOpenLightB->setEnabled(true);
-        ui->pbCloseLihgtB->setEnabled(false);
-        ui->pbOpenLightC->setEnabled(true);
-        ui->pbCloseLightC->setEnabled(false);
-        ui->pbOpenLightD->setEnabled(true);
-        ui->pbCloseLightD->setEnabled(false);
+        // 统一恢复: 振动盘(含全部运动类型按钮) / 料仓 / 光源 / 组合运动按钮回到空闲态
+        RestoreIdleButtons();
     });
 
     ui->pbSendMotionStop->setEnabled(false);
+
+    // 固件参数页(0x15/0x16/0x17/0x18): 12 个编辑器统一成 4 位小数。
+    // 这些相位参数的实际取值是 1.375 / 0.4375 这种 1/16 的整数倍, 而 Qt 默认 2 位小数。
+    // 2 位: 1.375 -> 1.38, 3 位: 0.4375 -> 0.438。显示时被四舍五入, 用户再点"保存配置"
+    // 就把舍入后的值写回 Flash —— 参数被界面悄悄改了, 且还会污染下一次读取的结果。
+    // 取 4 位: 0.4375 在十进制下是精确的, 同时在二进制里也是精确值(7/16), 读写都不会漂。
+    for (QDoubleSpinBox *pEditor : KeyParamsEditors())
+    {
+        pEditor->setDecimals(4);
+        pEditor->setRange(0.0, 100.0);
+        pEditor->setSingleStep(0.05);
+    }
+
+    // 同上: setupUi(parent) 让自动连接失效, 必须手动 connect
+    connect(ui->pbGetKeyParams, SIGNAL(clicked()), this, SLOT(on_pbGetKeyParams_clicked()));
+    connect(ui->pbSaveKeyParams, SIGNAL(clicked()), this, SLOT(on_pbSaveKeyParams_clicked()));
+    // 未连接时不可点(连接成功由 ControlWidget 调 SetKeyParamsAvailable(true) 放开)
+    UpdateKeyParamsButtons();
 
     // 料仓与光源按钮初始为空闲态
     ui->pbBinStopMotion->setEnabled(false);
@@ -261,12 +260,14 @@ ControlPanel::~ControlPanel()
 
 
 // 是否有动作正在执行:
-//  1) 序列(交替居中 / 组合运动)未跑完 —— 计数 > 0;
-//  2) 单条运动或料仓运动 —— 对应"停止"按钮处于可用态即说明正在动
-//     (单条运动不进计数, 只能靠按钮状态判断; 空闲时两个停止键都是禁用的)
+//  1) 运动进行中的界面锁(单条运动 / G1 / G2 / 交替居中序列都置位);
+//  2) 序列(交替居中 / 组合运动)未跑完 —— 计数 > 0;
+//  3) 料仓运动 —— 对应"停止"按钮处于可用态即说明正在动
+//     (空闲时两个停止键都是禁用的)
 bool ControlPanel::IsMotionRunning(void) const
 {
-    return (m_u32MotionSeqRemaining > 0) ||
+    return m_bMotionUiLocked ||
+           (m_u32MotionSeqRemaining > 0) ||
            ui->pbSendMotionStop->isEnabled() ||
            ui->pbBinStopMotion->isEnabled();
 }
@@ -294,6 +295,305 @@ void ControlPanel::SetReadOnly(const bool bReadOnly)
         ui->pbCloseLightC->setEnabled(false);
         ui->pbOpenLightD->setEnabled(false);
         ui->pbCloseLightD->setEnabled(false);
+
+        // 只读面板的运动类型按钮保持可点(编辑参数要先选按钮), 但不能顺手把锁解了
+        m_bMotionUiLocked = false;
+    }
+}
+
+
+// 全部运动类型按钮(上/下/左/右/聚拢/水平居中/垂直居中/分散/翻面)统一开关。
+// 不碰 QButtonGroup 的选中项: 禁用不会清掉 checked, 解锁后 m_qstrCurrentMotionButton
+// 与界面选中态仍然一致(参数控件显示的还是那个按钮的参数)
+void ControlPanel::SetMotionTypeButtonsEnabled(const bool bEnabled)
+{
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        Button.pButton->setEnabled(bEnabled);
+    }
+}
+
+
+// 下发运动后上锁: 发送键置灰 / 停止键可用 / G1、G2 与全部运动类型按钮置灰。
+// 解锁只有三条路(都由 RestoreIdleButtons 完成):
+//   1) 下位机完成帧 → sigMotionTerminate
+//   2) 运动应答超时  → 引擎清队后仍发 sigMotionTerminate(ConnectiveHandle.cpp OnEngineTick)
+//   3) 点了"停止运动" → 引擎清队时发 sigMotionTerminate
+void ControlPanel::LockMotionUi(void)
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    m_bMotionUiLocked = true;
+
+    ui->pbSendMotion->setEnabled(false);
+    ui->pbSendMotionStop->setEnabled(true);
+    // 组合运动与当前运动互斥: 序列计数共用一套, 同时进去会互相吞完成帧
+    ui->pbG1->setEnabled(false);
+    ui->pbG2->setEnabled(false);
+    SetMotionTypeButtonsEnabled(false);
+}
+
+
+// 唯一的统一恢复点: 振动盘(含运动类型按钮) / 料仓 / 光源 / 组合运动按钮全部回到空闲态
+void ControlPanel::RestoreIdleButtons(void)
+{
+    // 只读面板的按钮由 SetReadOnly 管, 这里不能把它"恢复"成可点
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    m_bMotionUiLocked = false;
+    SetMotionTypeButtonsEnabled(true);
+
+    // 兜底: 极少数情况下(如 exclusive 组内的按钮在禁用期间被 setChecked 过)选中态可能丢失,
+    // 解锁后按 m_qstrCurrentMotionButton 补一次, 否则"发送运动"会因没有当前按钮而无反应
+    if (m_pMotionGroup != nullptr && m_pMotionGroup->checkedButton() == nullptr)
+    {
+        for (const ButtonParams &Button : m_lstMotionButtons)
+        {
+            if (Button.qstrName == m_qstrCurrentMotionButton)
+            {
+                Button.pButton->setChecked(true);
+                break;
+            }
+        }
+    }
+
+    ui->pbSendMotion->setEnabled(true);
+    ui->pbSendMotionStop->setEnabled(false);
+    ui->pbG1->setEnabled(true);
+    ui->pbG2->setEnabled(true);
+    ui->pbBinStartMotion->setEnabled(true);
+    ui->pbBinStopMotion->setEnabled(false);
+    ui->pbOpenLightA->setEnabled(true);
+    ui->pbCloseLightA->setEnabled(false);
+    ui->pbOpenLightB->setEnabled(true);
+    ui->pbCloseLihgtB->setEnabled(false);
+    ui->pbOpenLightC->setEnabled(true);
+    ui->pbCloseLightC->setEnabled(false);
+    ui->pbOpenLightD->setEnabled(true);
+    ui->pbCloseLightD->setEnabled(false);
+}
+
+
+// 断连/重连: 链路没了, 在飞的指令不会再有完成帧, 界面必须无条件回空闲态。
+// 不清通信队列(队列随连接销毁, 由 ControlWidget::CloseConnection 负责),
+// 只复位计数 + 解锁按钮
+void ControlPanel::ResetMotionUiState(void)
+{
+    if (m_bReadOnly)
+    {
+        return;
+    }
+
+    ResetMotionSequence();
+    RestoreIdleButtons();
+}
+
+
+// ============================ 固件参数页(0x15~0x18) ============================
+
+// 12 个编辑器, 顺序必须与协议 0x16/0x17 的数据域以及下位机 KeyParams 结构体一致:
+// 上 / 下 / 左 / 右 / 水平居中 / 垂直居中, 每组"起始相位超前"在前、"相位偏移"在后
+QList<QDoubleSpinBox *> ControlPanel::KeyParamsEditors(void) const
+{
+    return
+    {
+        ui->dspUpStartPhaseLeading,      ui->dspUpPhaseOffset,
+        ui->dspDownStartPhaseLeading,    ui->dspDownPhaseOffset,
+        ui->dspLeftStartPhaseLeading,    ui->dspLeftPhaseOffset,
+        ui->dspRightStartPhaseLeading,   ui->dspRightPhaseOffset,
+        ui->dspHGatherStartPhaseLeading, ui->dspHGatherPhaseOffset,
+        ui->dspVGatherStartPhaseLeading, ui->dspVGatherPhaseOffset,
+    };
+}
+
+
+GeneralKeyParams::KeyParams ControlPanel::CollectKeyParams(void) const
+{
+    GeneralKeyParams::KeyParams sParams;
+
+    sParams.fUpStartPhaseLeading      = static_cast<float>(ui->dspUpStartPhaseLeading->value());
+    sParams.fUpPhaseOffset            = static_cast<float>(ui->dspUpPhaseOffset->value());
+    sParams.fDownStartPhaseLeading    = static_cast<float>(ui->dspDownStartPhaseLeading->value());
+    sParams.fDownPhaseOffset          = static_cast<float>(ui->dspDownPhaseOffset->value());
+    sParams.fLeftStartPhaseLeading    = static_cast<float>(ui->dspLeftStartPhaseLeading->value());
+    sParams.fLeftPhaseOffset          = static_cast<float>(ui->dspLeftPhaseOffset->value());
+    sParams.fRightStartPhaseLeading   = static_cast<float>(ui->dspRightStartPhaseLeading->value());
+    sParams.fRightPhaseOffset         = static_cast<float>(ui->dspRightPhaseOffset->value());
+    sParams.fHGatherStartPhaseLeading = static_cast<float>(ui->dspHGatherStartPhaseLeading->value());
+    sParams.fHGatherPhaseOffset       = static_cast<float>(ui->dspHGatherPhaseOffset->value());
+    sParams.fVGatherStartPhaseLeading = static_cast<float>(ui->dspVGatherStartPhaseLeading->value());
+    sParams.fVGatherPhaseOffset       = static_cast<float>(ui->dspVGatherPhaseOffset->value());
+
+    return sParams;
+}
+
+
+void ControlPanel::ApplyKeyParams(const GeneralKeyParams::KeyParams &sParams)
+{
+    ui->dspUpStartPhaseLeading->setValue(static_cast<double>(sParams.fUpStartPhaseLeading));
+    ui->dspUpPhaseOffset->setValue(static_cast<double>(sParams.fUpPhaseOffset));
+    ui->dspDownStartPhaseLeading->setValue(static_cast<double>(sParams.fDownStartPhaseLeading));
+    ui->dspDownPhaseOffset->setValue(static_cast<double>(sParams.fDownPhaseOffset));
+    ui->dspLeftStartPhaseLeading->setValue(static_cast<double>(sParams.fLeftStartPhaseLeading));
+    ui->dspLeftPhaseOffset->setValue(static_cast<double>(sParams.fLeftPhaseOffset));
+    ui->dspRightStartPhaseLeading->setValue(static_cast<double>(sParams.fRightStartPhaseLeading));
+    ui->dspRightPhaseOffset->setValue(static_cast<double>(sParams.fRightPhaseOffset));
+    ui->dspHGatherStartPhaseLeading->setValue(static_cast<double>(sParams.fHGatherStartPhaseLeading));
+    ui->dspHGatherPhaseOffset->setValue(static_cast<double>(sParams.fHGatherPhaseOffset));
+    ui->dspVGatherStartPhaseLeading->setValue(static_cast<double>(sParams.fVGatherStartPhaseLeading));
+    ui->dspVGatherPhaseOffset->setValue(static_cast<double>(sParams.fVGatherPhaseOffset));
+}
+
+
+// 状态行: 正常用深灰, 失败/超时用红色, 一眼能区分"读到了"和"没读到"
+void ControlPanel::SetKeyParamsStatus(const QString &qstrText, const bool bError)
+{
+    ui->lbKeyParamsStatus->setText(qstrText);
+    ui->lbKeyParamsStatus->setStyleSheet(bError ? QStringLiteral("color: #C02626;")
+                                                : QStringLiteral("color: #202020;"));
+}
+
+
+void ControlPanel::SetKeyParamsButtonsEnabled(const bool bEnabled)
+{
+    ui->pbGetKeyParams->setEnabled(bEnabled);
+    ui->pbSaveKeyParams->setEnabled(bEnabled);
+}
+
+
+// 按钮最终使能 = 已连接 && 没有进行中的事务。
+// 两个条件分开存是为了断连/重连时不丢状态(见 SetKeyParamsAvailable)
+void ControlPanel::UpdateKeyParamsButtons(void)
+{
+    SetKeyParamsButtonsEnabled(m_bKeyParamsAvailable && !m_bKeyParamsPending);
+}
+
+
+void ControlPanel::SetKeyParamsAvailable(const bool bAvailable)
+{
+    m_bKeyParamsAvailable = bAvailable;
+
+    if (!bAvailable)
+    {
+        // 断连: 等待中的事务作废(应答不会再来), 状态行如实说明
+        m_bKeyParamsPending = false;
+        SetKeyParamsStatus(QStringLiteral("未连接：连接成功后才能获取/保存固件参数。"), false);
+    }
+
+    UpdateKeyParamsButtons();
+}
+
+
+void ControlPanel::ResetKeyParamsUiState(void)
+{
+    m_bKeyParamsAvailable = false;
+    SetKeyParamsAvailable(false);
+}
+
+
+// 获取配置: 发 0x15, 等下位机回 0x16。
+// 注意这里没有 m_bReadOnly 早退 —— 固件参数页只在"配置数据"窗口里出现,
+// 而那个面板是 SetReadOnly(true) 的; 它发送的是"读写下位机 Flash"的指令,
+// 不是改本地面板参数, 所以只读面板也必须能发。
+void ControlPanel::on_pbGetKeyParams_clicked()
+{
+    if (m_bKeyParamsPending || !m_bKeyParamsAvailable)
+    {
+        return;
+    }
+
+    m_bKeyParamsPending = true;
+    UpdateKeyParamsButtons();
+    SetKeyParamsStatus(QStringLiteral("正在从下位机读取固件参数…"), false);
+
+    emit sigGetKeyParams();
+}
+
+
+// 保存配置: 组 0x17(数据域 49 字节), 等下位机回 0x18(0=成功 1=失败)
+void ControlPanel::on_pbSaveKeyParams_clicked()
+{
+    if (m_bKeyParamsPending || !m_bKeyParamsAvailable)
+    {
+        return;
+    }
+
+    QByteArray qbtData;
+    m_pProtocol->SaveKeyParamsProtocol(CollectKeyParams(), qbtData);
+
+    m_bKeyParamsPending = true;
+    UpdateKeyParamsButtons();
+    SetKeyParamsStatus(QStringLiteral("正在保存到下位机 Flash…"), false);
+
+    emit sigSaveKeyParams(qbtData);
+}
+
+
+void ControlPanel::OnGetKeyParamsResult(const quint8 &u8Status, const QByteArray &qbtData)
+{
+    // 非本次事务的迟到应答(例如断连前那次)直接丢弃
+    if (!m_bKeyParamsPending)
+    {
+        return;
+    }
+
+    m_bKeyParamsPending = false;
+    UpdateKeyParamsButtons();
+
+    if (u8Status == 0xFF)
+    {
+        SetKeyParamsStatus(QStringLiteral("获取超时：下位机 2 秒内没有应答，请检查连接后重试。"), true);
+        return;
+    }
+
+    GeneralKeyParams::KeyParams sParams;
+    if (!GeneralProtocol::KeyParamsFromBytes(qbtData, sParams))
+    {
+        SetKeyParamsStatus(QStringLiteral("获取失败：下位机应答的数据不足 48 字节，无法解析。"), true);
+        return;
+    }
+
+    ApplyKeyParams(sParams);
+
+    if (u8Status == GeneralProtocolItems::u8GET_KEY_PARAMS_FROM_FLASH)
+    {
+        SetKeyParamsStatus(QStringLiteral("获取成功：以上参数读取自下位机 Flash（已保存过的值）。"), false);
+    }
+    else
+    {
+        SetKeyParamsStatus(QStringLiteral("下位机 Flash 里没有有效参数：以上是固件默认值，"
+                                          "点“保存配置”才会写入 Flash。"), true);
+    }
+}
+
+
+void ControlPanel::OnSaveKeyParamsResult(const int &iResult)
+{
+    if (!m_bKeyParamsPending)
+    {
+        return;
+    }
+
+    m_bKeyParamsPending = false;
+    UpdateKeyParamsButtons();
+
+    if (iResult == 1)
+    {
+        SetKeyParamsStatus(QStringLiteral("保存成功：参数已写入下位机 Flash，回读校验通过。"), false);
+    }
+    else if (iResult == 0)
+    {
+        SetKeyParamsStatus(QStringLiteral("保存失败：下位机写 Flash 未通过校验，参数未改变，请重试。"), true);
+    }
+    else
+    {
+        SetKeyParamsStatus(QStringLiteral("保存超时：3 秒内没收到下位机的保存结果，无法确认是否写入成功。"), true);
     }
 }
 
@@ -769,7 +1069,7 @@ void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QSt
     }
 
     // 已有序列在跑(按钮此时应已禁用, 这里兜底): 不能中途重置计数, 否则按钮会提前恢复
-    if (m_u32MotionSeqRemaining > 0)
+    if (m_u32MotionSeqRemaining > 0 || m_bMotionUiLocked)
     {
         qWarning() << qstrGroupName << "sequence ignored: another sequence is running";
         return;
@@ -813,10 +1113,8 @@ void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QSt
 
     qDebug() << qstrGroupName << "sequence:" << u32Count << "steps," << iWallMs << "ms";
 
-    ui->pbSendMotion->setEnabled(false);
-    ui->pbSendMotionStop->setEnabled(true);
-    ui->pbG1->setEnabled(false);
-    ui->pbG2->setEnabled(false);
+    // 序列期间锁界面: 发送/停止互换 + G1/G2 与全部运动类型按钮置灰
+    LockMotionUi();
 
     // 兜底: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量
     if (m_pMotionSeqWatchdog)
@@ -840,6 +1138,12 @@ void ControlPanel::on_pbG2_clicked()
 
 void ControlPanel::on_pbSendMotion_clicked()
 {
+    // 兜底: 运动进行中(按钮已置灰)不接受重复下发, 否则会往队列里再塞一条运动
+    if (m_bReadOnly || m_bMotionUiLocked)
+    {
+        return;
+    }
+
     for (ButtonParams &Button : m_lstMotionButtons)
     {
         if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
@@ -856,11 +1160,9 @@ void ControlPanel::on_pbSendMotion_clicked()
                 SendButtonMotion(Button, -1.0f);
             }
 
-            ui->pbSendMotion->setEnabled(false);
-            ui->pbSendMotionStop->setEnabled(true);
-            // 运动进行中锁住 G1/G2, 避免序列计数被当前运动的完成帧误吞
-            ui->pbG1->setEnabled(false);
-            ui->pbG2->setEnabled(false);
+            // 下发后立刻上锁: 全部运动类型按钮置灰, 直到
+            // "完成帧 / 运动反馈超时 / 点了停止运动" 才由 RestoreIdleButtons 解锁
+            LockMotionUi();
         }
     }
 }
