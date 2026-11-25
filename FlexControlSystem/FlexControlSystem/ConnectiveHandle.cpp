@@ -25,6 +25,10 @@
 #define GET_KEY_PARAMS_TIMEOUT_MS   2000
 // 保存固件参数 应答超时 ms: 下位机擦一页 Flash + 逐半字编程 + 回读校验, 与保存IP 同量级
 #define SAVE_KEY_PARAMS_TIMEOUT_MS  3000
+// 获取固件版本 应答超时 ms: 纯查询(下位机只回 3 个字节), 2s 足够。
+// 超时静默: 旧固件没有 0x19, 现场不该因为"读不到版本号"弹框,
+// 界面显示 "--" 就够了。
+#define GET_FW_VERSION_TIMEOUT_MS   2000
 // 接收帧超时 ms(超时后解析状态复位)
 #define RECV_PARSE_TIMEOUT_MS       2000
 // 无限时间动作(0x03/0x07 数据域末尾标志=1)的响应超时 ms。
@@ -37,12 +41,39 @@
 
 // 判断运动类帧是不是"无限时间动作"。帧布局:
 //   55 AA | cmd | len | data(N) | chkH chkL | AA 55
-// 数据域最后一个字节(无限时间标志)的下标 = size()-5 (0x03 是第 12 字节, 0x07 是第 8 字节)
+// 数据域最后一个字节(无限时间标志)的下标 = size()-5 (0x03 是第 14 字节, 0x07 是第 10 字节)
 static bool IsInfiniteTimeFrame(const QByteArray &qbtData)
 {
     const int iFlagIndex = qbtData.size() - 5;
 
     return (iFlagIndex >= 4) && (static_cast<uint8_t>(qbtData.at(iFlagIndex)) == 1);
+}
+
+
+// 读帧内 4 字节大端无符号整数。
+// 时间域 2026-11-25 从 2 字节扩到 4 字节, 0x03/0x07 两条帧的时间都落在整帧下标 9~12
+// (数据域第 6~9 字节)。越界返回 0, 让超时退回"冗余 2s"而不是读脏数据。
+static uint32_t ReadTimeTicks(const QByteArray &qbtData)
+{
+    const int iOffset = 9;
+
+    if (iOffset + 3 >= qbtData.size())
+    {
+        return 0;
+    }
+
+    return (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset))) << 24) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 1))) << 16) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 2))) << 8) |
+            static_cast<uint32_t>(static_cast<uint8_t>(qbtData.at(iOffset + 3)));
+}
+
+
+// 运动/料仓动作的应答超时 = 动作时长(100ms/格 → ms) + 2s 冗余。
+// 上限 9999s → 99990 格 → 9 999 000ms, 仍在 uint32 范围内(49 天), 不会溢出。
+static uint32_t MotionTimeoutMs(const QByteArray &qbtData)
+{
+    return ReadTimeTicks(qbtData) * 100u + 2000u;
 }
 
 
@@ -66,6 +97,7 @@ ConnectiveHandle::ConnectiveHandle(QObject *parent)
         {SendCmdType::GetVoltage, {}},
         {SendCmdType::GetKeyParams, {}},
         {SendCmdType::SaveKeyParams, {}},
+        {SendCmdType::GetFwVersion, {}},
     };
 
     connect(this, SIGNAL(sigSetUpConnective(QString)), this, SLOT(SetupConnective(QString)));
@@ -148,7 +180,7 @@ void ConnectiveHandle::SendMotionCommand(const QByteArray &qbtData, const QByteA
     sSendStruct.qbtRespond = qbtRespond;
     sSendStruct.i64StartTime = 0;
 
-    // 运动指令加 2s 的超时冗余: 帧内 [9][10] 为运动时长(单位 100ms)
+    // 运动指令加 2s 的超时冗余: 帧内 [9]~[12] 为运动时长(4 字节大端, 单位 100ms)
     // 无限时间动作(数据域末字节=1)不会自己结束, 改用 24h 的"准无限"超时
     if (IsInfiniteTimeFrame(qbtData))
     {
@@ -156,8 +188,7 @@ void ConnectiveHandle::SendMotionCommand(const QByteArray &qbtData, const QByteA
     }
     else
     {
-        sSendStruct.u32ExpectedRespondTimeThresh =
-                (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+        sSendStruct.u32ExpectedRespondTimeThresh = MotionTimeoutMs(qbtData);
     }
 
     qDebug() << "send motion";
@@ -215,7 +246,7 @@ void ConnectiveHandle::SendBinMotionCommand(const QByteArray &qbtData, const QBy
     sSendStruct.qbtRespond = qbtRespond;
     sSendStruct.i64StartTime = 0;
 
-    // 料仓帧的数据域布局与振动盘一致: [9][10] 为运动时长(单位 100ms)
+    // 料仓帧的数据域布局与振动盘一致: [9]~[12] 为运动时长(4 字节大端, 单位 100ms)
     // 无限时间动作同样改用 24h 的"准无限"超时
     if (IsInfiniteTimeFrame(qbtData))
     {
@@ -223,8 +254,7 @@ void ConnectiveHandle::SendBinMotionCommand(const QByteArray &qbtData, const QBy
     }
     else
     {
-        sSendStruct.u32ExpectedRespondTimeThresh =
-                (static_cast<uint16_t>(static_cast<uint8_t>(qbtData[9]) << 8) | static_cast<uint8_t>(qbtData[10])) * 100 + 2000;
+        sSendStruct.u32ExpectedRespondTimeThresh = MotionTimeoutMs(qbtData);
     }
 
     qDebug() << "send bin motion";
@@ -439,6 +469,38 @@ void ConnectiveHandle::SendSaveKeyParamsCommand(const QByteArray &qbtData)
 
     qDebug() << "send save key params";
     m_qmapSendBuffer[SendCmdType::SaveKeyParams].append(sSendStruct);
+}
+
+
+// 获取固件版本: 连接成功后读一次, 应答 0x1A 数据域 3 字节, 按命令码匹配。
+// 与"获取固件参数"的区别: 这里没有按钮, 也没有重试 —— 读不到就显示 "--",
+// 下次重连会再读一次, 所以不需要界面侧的 pending 事务。
+void ConnectiveHandle::SendGetFirmwareVersionCommand(void)
+{
+    if (!m_bChannelOpen)
+    {
+        return;
+    }
+
+    // 重连时可能上一轮还在队列里(极端情况), 不堆叠, 让上一次的超时逻辑收尾
+    if (!m_qmapSendBuffer[SendCmdType::GetFwVersion].isEmpty())
+    {
+        return;
+    }
+
+    QByteArray qbtCmd;
+    m_pProtocol->GetFirmwareVersionProtocol(qbtCmd);
+
+    SendCmdStruct sSendStruct;
+    sSendStruct.bRespond = false;
+    sSendStruct.bSent = false;
+    sSendStruct.qbtSend = qbtCmd;
+    sSendStruct.qbtRespond.clear();
+    sSendStruct.i64StartTime = 0;
+    sSendStruct.u32ExpectedRespondTimeThresh = GET_FW_VERSION_TIMEOUT_MS;
+
+    qDebug() << "send get firmware version";
+    m_qmapSendBuffer[SendCmdType::GetFwVersion].append(sSendStruct);
 }
 
 
@@ -786,6 +848,37 @@ void ConnectiveHandle::OnEngineTick(void)
             emit sigSaveKeyParamsResult(-1);
         }
     }
+
+    // ---- 获取固件版本(应答 0x1A, 三个字节由接收匹配写入) ----
+    QVector<SendCmdStruct> &sGetFw = m_qmapSendBuffer[SendCmdType::GetFwVersion];
+    if (!sGetFw.isEmpty())
+    {
+        SendCmdStruct &sItem = sGetFw.first();
+
+        if (!sItem.bSent)
+        {
+            if (WriteData(sItem.qbtSend))
+            {
+                sItem.bSent = true;
+                sItem.i64StartTime = i64Now;
+            }
+        }
+        else if (sItem.bRespond)
+        {
+            sGetFw.removeFirst();
+            emit sigGetFirmwareVersionResult(QStringLiteral("%1.%2.%3")
+                                             .arg(m_u8FwVersionMajor)
+                                             .arg(m_u8FwVersionMinor)
+                                             .arg(m_u8FwVersionPatch));
+        }
+        else if (i64Now - sItem.i64StartTime >= sItem.u32ExpectedRespondTimeThresh)
+        {
+            // 静默: 旧固件没实现 0x19, 不该弹框; 发空串让标签回到 "--"
+            qDebug() << "get firmware version respond timeout";
+            sGetFw.clear();
+            emit sigGetFirmwareVersionResult(QString());
+        }
+    }
 }
 
 
@@ -950,6 +1043,17 @@ void ConnectiveHandle::RecvMessageHandle(void)
     {
         m_bSaveKeyOk = (static_cast<uint8_t>(qbtFrame.at(4)) == GeneralProtocolItems::u8SAVE_KEY_PARAMS_SUCCESS);
         m_qmapSendBuffer[SendCmdType::SaveKeyParams].first().bRespond = true;
+    }
+    // 获取固件版本: 应答 0x1A 数据域 3 字节(major/minor/patch), 按命令码 + 长度识别
+    else if (!m_qmapSendBuffer[SendCmdType::GetFwVersion].isEmpty() &&
+             qbtFrame.size() >= 9 &&
+             static_cast<uint8_t>(qbtFrame.at(2)) == GeneralProtocolItems::u8FW_GET_FW_VERSION_RESPOND &&
+             static_cast<uint8_t>(qbtFrame.at(3)) == GeneralProtocolItems::iFW_VERSION_DATA_LEN)
+    {
+        m_u8FwVersionMajor = static_cast<uint8_t>(qbtFrame.at(4));
+        m_u8FwVersionMinor = static_cast<uint8_t>(qbtFrame.at(5));
+        m_u8FwVersionPatch = static_cast<uint8_t>(qbtFrame.at(6));
+        m_qmapSendBuffer[SendCmdType::GetFwVersion].first().bRespond = true;
     }
 
     qDebug() << "remove recv info" << qbtFrame;

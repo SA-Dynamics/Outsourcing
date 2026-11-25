@@ -98,8 +98,8 @@ void GroupMotion::InitComboBoxes(void)
 
     for (QDoubleSpinBox *pTime : apTime)
     {
-        pTime->setDecimals(2);
-        pTime->setRange(0.0, 60.0);
+        pTime->setDecimals(1);          // 协议时间刻度 0.1s, 留着 2 位小数会误导用户
+        pTime->setRange(0.0, 9999.0);   // 2026-11-25 时间域 2→4 字节, 上限 9999s(原 60)
         pTime->setSingleStep(0.1);
         pTime->setSuffix(" s");
         pTime->setValue(0.5);       // 默认每步 0.5s, 0 表示该步不执行

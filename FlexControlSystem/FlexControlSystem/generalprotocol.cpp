@@ -20,6 +20,32 @@ static void AppendFloatBigEndian(QByteArray &qbtData, const float fValue)
 }
 
 
+// 追加一个 32 位无符号整数(大端)。
+// 时间域 2026-11-25 从 2 字节扩到 4 字节: 上限 9999s, 按 ×10 下发是 99990,
+// 已经装不进 uint16(65535), 必须走 32 位, 否则 6553.5s 以上会回绕成小值。
+static void AppendUInt32BigEndian(QByteArray &qbtData, const uint32_t u32Value)
+{
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Value >> 24) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Value >> 16) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>((u32Value >> 8) & 0xFFu)));
+    qbtData.append(static_cast<char>(static_cast<uint8_t>(u32Value & 0xFFu)));
+}
+
+
+// 秒 → 协议时间刻度(单位 100ms, 即秒数×10)。
+// 用四舍五入而不是直接截断: 0.8f 在二进制里是 0.8000000119..., 乘 10 得 7.9999995,
+// 截断会下发 7(0.7s), 一帧就差 100ms。上限 9999s → 99990, 由调用方保证不越界。
+static uint32_t TimeToTicks(const float fSeconds)
+{
+    if (fSeconds <= 0.0f)
+    {
+        return 0;
+    }
+
+    return static_cast<uint32_t>(static_cast<double>(fSeconds) * 10.0 + 0.5);
+}
+
+
 // 从字节数组的 iOffset 处按大端读一个 float
 static float ReadFloatBigEndian(const QByteArray &qbtData, const int iOffset)
 {
@@ -129,8 +155,10 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
 
     qbtSendCmd.append(u8SW_MOTION_CMD);
 
-    // 数据域 12 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限时间"标志)
-    qbtSendCmd.append(0xC);
+    // 数据域 14 字节:
+    //   1=索引 2~3=电压 4~5=频率 6~9=时间(4B) 10~11=角度 12~13=系数 14=无限时间标志
+    // 2026-11-25 时间域 2→4 字节(上限 9999s); 2026-11-22 末尾追加"无限时间"标志
+    qbtSendCmd.append(0xE);
     qbtSendCmd.append(GetMotionIndexCmd(sParams.eIndex));
 
     uint16_t u16Temp = 0;
@@ -144,9 +172,8 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
 
 
-    u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+    // 数据域第 6~9 byte: 时间(秒×10), 4 字节大端
+    AppendUInt32BigEndian(qbtSendCmd, TimeToTicks(sParams.fTimeUse));
 
 
     qbtSendCmd.append(static_cast<uint8_t>(sParams.s16AngleOffset >> 8));
@@ -159,7 +186,7 @@ void GeneralProtocol::MotionControlProtocol(const GeneralMotion::MotionParams &s
     qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(s16ModifyCoeff & 0xFF));
 
-    // 数据域第 12 字节: 1=无限时间动作, 0=按上面的时间域计时
+    // 数据域第 14 字节: 1=无限时间动作, 0=按上面的时间域计时
     qbtSendCmd.append(static_cast<uint8_t>(sParams.bInfiniteTime ? 1 : 0));
 
 
@@ -242,7 +269,7 @@ void GeneralProtocol::MotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtResp
 }
 
 
-// 料仓运动(0x07): 数据域 7 字节, 时间域偏移与振动盘帧一致([9][10], 单位 100ms)
+// 料仓运动(0x07): 数据域 10 字节, 时间域位置与振动盘帧一致([9]~[12], 单位 100ms)
 void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sParams,
                                         QByteArray &qbtSendCmd,
                                         QByteArray &qbtRespond)
@@ -252,8 +279,9 @@ void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sPara
     qbtSendCmd.append(u8FRAME_HEAD2);
 
     qbtSendCmd.append(u8SW_BIN_MOTION_CMD);
-    // 数据域 8 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限时间"标志)
-    qbtSendCmd.append(0x8);
+    // 数据域 10 字节: 索引 1 + 电压 2 + 频率 2 + 时间 4 + 无限时间标志 1
+    // 2026-11-25 时间域 2→4 字节(上限 9999s); 2026-11-22 末尾追加"无限时间"标志
+    qbtSendCmd.append(0xA);
     // 料仓运动索引固定为 1(协议定义)
     qbtSendCmd.append(uint8_t(0x01));
 
@@ -266,11 +294,10 @@ void GeneralProtocol::BinMotionProtocol(const GeneralMotion::MotionParams &sPara
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
     qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
 
-    u16Temp = static_cast<uint16_t>(sParams.fTimeUse * 10);
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp >> 8));
-    qbtSendCmd.append(static_cast<uint8_t>(u16Temp & 0xFF));
+    // 数据域第 6~9 byte: 时间(秒×10), 4 字节大端
+    AppendUInt32BigEndian(qbtSendCmd, TimeToTicks(sParams.fTimeUse));
 
-    // 数据域第 8 字节: 1=无限时间动作, 0=按时间域计时
+    // 数据域第 10 字节: 1=无限时间动作, 0=按时间域计时
     qbtSendCmd.append(static_cast<uint8_t>(sParams.bInfiniteTime ? 1 : 0));
 
     AddCheckSum(qbtSendCmd);
@@ -329,7 +356,7 @@ void GeneralProtocol::BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtR
 
 // 打开光源(0x0B): 亮度 0~100, 保持时间单位 100ms; 应答 0x0C 带回光源索引
 void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
-                                      const uint16_t u16KeepTime, const bool bInfiniteKeep,
+                                      const uint32_t u32KeepTime, const bool bInfiniteKeep,
                                       QByteArray &qbtSendCmd, QByteArray &qbtRespond)
 {
     // 上位机发送
@@ -337,13 +364,14 @@ void GeneralProtocol::LightOnProtocol(const uint8_t u8Index, const uint8_t u8Bri
     qbtSendCmd.append(u8FRAME_HEAD2);
 
     qbtSendCmd.append(u8SW_LIGHT_ON_CMD);
-    // 数据域 5 字节(2026-11-22 协议扩展: 末尾追加 1 字节"无限保持"标志)
-    qbtSendCmd.append(0x5);
+    // 数据域 7 字节: 索引 1 + 亮度 1 + 保持时间 4 + 无限保持标志 1
+    // 2026-11-25 保持时间 2→4 字节(上限 9999s); 2026-11-22 末尾追加"无限保持"标志
+    qbtSendCmd.append(0x7);
     qbtSendCmd.append(u8Index);
     qbtSendCmd.append(u8Brightness);
-    qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime >> 8));
-    qbtSendCmd.append(static_cast<uint8_t>(u16KeepTime & 0xFF));
-    // 第 5 字节: 1=无限保持(等价于下位机的"保持时间 0 = 常亮"), 0=按保持时间
+    // 第 3~6 字节: 保持时间(秒×10), 4 字节大端
+    AppendUInt32BigEndian(qbtSendCmd, u32KeepTime);
+    // 第 7 字节: 1=无限保持(等价于下位机的"保持时间 0 = 常亮"), 0=按保持时间
     qbtSendCmd.append(static_cast<uint8_t>(bInfiniteKeep ? 1 : 0));
 
     AddCheckSum(qbtSendCmd);
@@ -582,5 +610,25 @@ void GeneralProtocol::SaveKeyParamsProtocol(const GeneralKeyParams::KeyParams &s
     qbtCmd.append(u8FRAME_TAIL2);
 
     qDebug() << "save key params data:" << qbtCmd.toHex();
+}
+
+
+// 获取固件版本(0x19): 数据域 1 字节 0x01; 下位机回 0x1A + 3 字节(主/次/修订)
+// 与获取电压同构: 应答内容随固件变化, 不生成期望帧, 由 ConnectiveHandle 按命令码匹配
+void GeneralProtocol::GetFirmwareVersionProtocol(QByteArray &qbtCmd)
+{
+    qbtCmd.append(u8FRAME_HEAD1);
+    qbtCmd.append(u8FRAME_HEAD2);
+
+    qbtCmd.append(u8SW_GET_FW_VERSION_CMD);
+    qbtCmd.append(uint8_t(1));
+    qbtCmd.append(uint8_t(0x01));
+
+    AddCheckSum(qbtCmd);
+
+    qbtCmd.append(u8FRAME_TAIL1);
+    qbtCmd.append(u8FRAME_TAIL2);
+
+    qDebug() << "get firmware version cmd:" << qbtCmd.toHex();
 }
 

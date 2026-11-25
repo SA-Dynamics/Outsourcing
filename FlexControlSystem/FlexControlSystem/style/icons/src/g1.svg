@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 组合运动1: 两段动作的序列(列表式) -->
+  <g fill="none" stroke="#16A34A" stroke-width="5.5" stroke-linecap="round">
+    <path d="M22 26 H50"/>
+    <path d="M22 38 H43"/>
+  </g>
+  <g fill="#16A34A">
+    <circle cx="13.5" cy="26" r="2.8"/>
+    <circle cx="13.5" cy="38" r="2.8"/>
+  </g>
+</svg>

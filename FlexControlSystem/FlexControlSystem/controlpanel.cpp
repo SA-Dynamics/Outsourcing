@@ -15,7 +15,88 @@
 #include <QGridLayout>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
+#include <QLabel>
 
+
+namespace
+{
+// ---------------- 运动键图标 ----------------
+// 图标本体是 style/icons/*.png(由 build-check/make_icons.cpp 从 icons/src/*.svg 光栅化),
+// 颜色只在本文件定义: 想换主色改 kpszIconGreen 一处即可, 不用重新导出素材。
+// 绿色 = 动作语义色, 和主色蓝(可操作/选中)、红(停止/断开)区分开。
+const char *const kpszIconGreen = "#16A34A";
+// 光源通道名(A~D): 状态灯的 tooltip 用它, 下标 0~3 与协议索引 1~4 对应
+const char *const kpstrLightNames[4] = {"A", "B", "C", "D"};
+const char *const kpszIconGray = "#9CA3AF";   // 与 QSS 里的禁用文字色一致
+
+// 时间类参数(运动/料仓/光源, 单位秒)的上限。
+// 2026-11-25 协议时间域由 2 字节扩到 4 字节, 秒×10 最大 99990, 界面统一给到 9999s。
+// 改了这里要同步 doc/通信协议.docx 与下位机的解析宽度(下位机若还用 uint16 计时会回绕)。
+const double kMaxTimeUse = 9999.0;
+
+// 把单色图标整体换色: SourceIn 只保留新颜色的 alpha 形状, 抗锯齿边缘不受影响
+QPixmap RecolorPixmap(const QPixmap &pmSrc, const QColor &clrTint)
+{
+    QPixmap pmOut(pmSrc.size());
+    pmOut.setDevicePixelRatio(pmSrc.devicePixelRatio());
+    pmOut.fill(Qt::transparent);
+
+    QPainter pnt(&pmOut);
+    pnt.drawPixmap(0, 0, pmSrc);
+    pnt.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    pnt.fillRect(pmOut.rect(), clrTint);
+    pnt.end();
+
+    return pmOut;
+}
+
+// 4 种 mode × On/Off 全部给齐。少给一种, Qt 会按"最接近的一张"回退,
+// 典型症状: 选中(实心蓝底)时图标还是绿的, 绿压蓝糊成一团; 或者禁用态图标仍是彩色的。
+QIcon MakeMotionIcon(const QString &qstrName)
+{
+    const QColor clrGreen(kpszIconGreen);
+    const QColor clrGray(kpszIconGray);
+    const QColor clrWhite(Qt::white);
+
+    struct IconVariant
+    {
+        QIcon::Mode eMode;
+        QIcon::State eState;
+        QColor clrTint;
+    };
+    const QList<IconVariant> lstVariants = {
+        {QIcon::Normal,   QIcon::Off, clrGreen},   // 常态
+        {QIcon::Active,   QIcon::Off, clrGreen},   // 悬停 / 按下
+        {QIcon::Selected, QIcon::Off, clrGreen},
+        {QIcon::Normal,   QIcon::On,  clrWhite},   // 选中: 蓝底, 必须转白
+        {QIcon::Active,   QIcon::On,  clrWhite},
+        {QIcon::Selected, QIcon::On,  clrWhite},
+        {QIcon::Disabled, QIcon::Off, clrGray},    // 禁用: 灰底灰图标
+        {QIcon::Disabled, QIcon::On,  clrGray}};
+
+    QIcon icoOut;
+    for (const int iSize : {48, 96})
+    {
+        const QPixmap pmSrc(QStringLiteral(":/icons/%1_%2.png").arg(qstrName).arg(iSize));
+        if (pmSrc.isNull())
+        {
+            qWarning() << "motion icon missing:" << qstrName << iSize;
+            continue;
+        }
+        for (const IconVariant &sVariant : lstVariants)
+        {
+            icoOut.addPixmap(RecolorPixmap(pmSrc, sVariant.clrTint),
+                             sVariant.eMode, sVariant.eState);
+        }
+    }
+
+    return icoOut;
+}
+}
 
 
 ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
@@ -40,6 +121,8 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
         QHBoxLayout *pFlatLayout = new QHBoxLayout();
         ui->gridLayout->addLayout(pFlatLayout, 0, 0);
         const QStringList Titles = {QStringLiteral("运动"), QStringLiteral("光源"), QStringLiteral("料仓")};
+        // 三张卡的归属先收集起来, 外层怎么摆放到循环之后统一决定(见下面的"外层排布")
+        QGroupBox *pRunGroups[3] = {nullptr, nullptr, nullptr};
         for (int s32Index = 0; s32Index < 3; ++s32Index)
         {
             QWidget *pPage = ui->tabWidget->widget(0);
@@ -53,11 +136,10 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
             pLayout->setSpacing(4);
             QLabel *pTitle = new QLabel(Titles.at(s32Index), pGroup);
             pTitle->setObjectName(QStringLiteral("RunGroupTitle%1").arg(s32Index));
-            pTitle->setStyleSheet(QStringLiteral("font-weight: bold; color: #202020; background: #E7F1FC; padding: 2px 6px;"));
-            // 关键：标题条必须是"定高、纵向不可拉伸"。
-            // 原来只写了 setMinimumHeight(22)，竖直 SizePolicy 仍是 Preferred(=可放大)，
-            // QVBoxLayout 于是把整列富余高度都塞给它 → 运动区顶部出现一大片空白蓝块，
-            // 按钮被顶到下面（光源/料仓因为页内自带 verticalSpacer 吸收了富余高度，所以看不出问题）。
+            // 标题条观感(字重/颜色/底部分隔线)统一由 style/app.qss 里
+            // QLabel#RunGroupTitleN 提供, 这里不再写内联样式。
+            // 但"定高 + 纵向 Fixed"必须留在代码里 —— 那是布局约束不是观感,
+            // 交给样式表改不到, 漏了就会出现"标题下面一大片空白"(2026-11-21 踩过)。
             pTitle->setFixedHeight(24);
             pTitle->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
             pTitle->show();
@@ -65,7 +147,7 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
             pLayout->addWidget(pPage, 0);
             // 富余高度统一留在底部（与光源/料仓页内 spacer 的观感一致），不再撑高标题条或拉开按钮间距。
             pLayout->addStretch(1);
-            pFlatLayout->addWidget(pGroup, s32Index == 0 ? 3 : 2);
+            pRunGroups[s32Index] = pGroup;
             pPage->show();
             for (QWidget *pEditor : pPage->findChildren<QWidget *>())
             {
@@ -84,10 +166,211 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
                 pLabel->hide();
             }
         }
+        // ---- 外层排布: 运动占左列, 光源在上、料仓在下占右列（2026-11-25 需求）----
+        // 料仓只有一个"发送运动/停止", 单独占一列时整张卡几乎全空(实测 284×440 只放
+        // 了 2 个小按钮), 太浪费。把料仓并到光源下面: 右列少一列, 让出来的宽度正好给
+        // 光源那 8 个按钮铺开用掉, 空白面积比原来少了一大块。
+        // 高度按内容比例 4:1 分(光源 4 行键 / 料仓 1 行键), 料仓不会被拉成一张大空卡。
+        // 间距/边距跟外层横排保持一致, 否则两列之间和两张卡之间的缝对不齐。
+        pFlatLayout->addWidget(pRunGroups[0], 1);
+        QVBoxLayout *pRightCol = new QVBoxLayout();
+        pRightCol->setContentsMargins(pFlatLayout->contentsMargins());
+        pRightCol->setSpacing(pFlatLayout->spacing());
+        pRightCol->addWidget(pRunGroups[1], 4);
+        pRightCol->addWidget(pRunGroups[2], 1);
+        pFlatLayout->addLayout(pRightCol, 1);
+
         // 隐藏的高级页及其 G1/G2 控件留在 tabWidget 中，仍参与运行取值。
         ui->horizontalSpacer->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
         ui->horizontalSpacer_8->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
-        ui->horizontalSpacer_9->changeSize(0, 0, QSizePolicy::Fixed, QSizePolicy::Fixed);
+        // horizontalSpacer_9 不再清零(2026-11-24): 它是"运动键区"和"发送/停止"
+        // 之间唯一的弹性间隔。清零后富余宽度会被平均摊给键区那三列,
+        // 方块之间出现 40+px 的大缝(实测 60px 方块被摊到 103px 列宽)。
+        // 留着它 Expanding, 键区贴左、操作键贴右, 方块间距才是网格自身间距。
+
+        // ---- 光源区: A/B/C/D 四组, 每组 = 状态灯 + 开启/关闭（2026-11-25 十二次）----
+        // .ui 里光源是「4 组 × 2 行」的纵向单列（标签 + 亮度/时间编辑器 + 开/关键），
+        // 运行页把标签和编辑器全隐藏后只剩 8 个按钮，谁开着只能看按钮文字，现场扫一眼看不出来。
+        // 现在每组补一盏状态灯（灰=灭 / 绿=亮），按钮宽度收到 130（原来铺满 253 的一半）：
+        //   每组 = [灯 36×36] + [开启/关闭 竖排, 各 130×36]
+        //   4 组摆成 2×2：左列 A/B、右列 C/D（与原来的列归属一致）
+        // 横向富余交给三处等宽伸缩 —— 边距 : 组间 : 边距 三个缝一样宽，整块居中，
+        // 不再像以前那样右边甩出一大块白。
+        //
+        // 做法: 把 gridLayout_5 里剩下的东西整体摘掉，换成一个自建面板挂进同一个格子。
+        // **控件只摘不删** —— 亮度/时间编辑器虽然隐藏，值仍要参与下发（构造时读它们算协议帧）。
+        const int kLampSize = 36;        // 灯与按键同高, 一眼能看出"这盏灯属于这组键"
+        const int kLightKeyWidth = 130;  // ≈ 253/2
+        // 状态灯位图: 用 96 的源图并标上 DPR(96/36), 这样 36px 的逻辑尺寸是从 96 个
+        // 像素采出来的; 直接把 96 缩成 36 的位图再贴, 150%/200% 缩放下会糊。
+        m_pmLampOff = QPixmap(QStringLiteral(":/icons/lamp_off_96.png"));
+        m_pmLampOn  = QPixmap(QStringLiteral(":/icons/lamp_on_96.png"));
+        if (!m_pmLampOff.isNull() && m_pmLampOff.width() > kLampSize)
+        {
+            const qreal dpr = qreal(m_pmLampOff.width()) / qreal(kLampSize);
+            m_pmLampOff.setDevicePixelRatio(dpr);
+            m_pmLampOn.setDevicePixelRatio(dpr);
+        }
+        while (QLayoutItem *pItem = ui->gridLayout_5->takeAt(0))
+        {
+            if (pItem->widget() != nullptr)
+            {
+                pItem->widget()->hide();
+            }
+            delete pItem;   // 删的是布局项(含弹簧), 控件本身不删
+        }
+
+        QWidget *pLightHost = new QWidget(ui->gridLayout_5->parentWidget());
+        pLightHost->setObjectName(QStringLiteral("LightLampPanel"));
+        QVBoxLayout *pHostLayout = new QVBoxLayout(pLightHost);
+        pHostLayout->setContentsMargins(0, 0, 0, 0);
+        pHostLayout->setSpacing(34);   // 两排之间的纵向间隔(横向的缝由两侧等宽伸缩给出)
+        ui->gridLayout_5->addWidget(pLightHost, 0, 0, 1, 1);
+
+        // A~D 的开/关键, 下标与协议索引一致(1=A ... 4=D, 这里用 0~3)
+        QPushButton *arrOpenKeys[4] = {ui->pbOpenLightA, ui->pbOpenLightB,
+                                       ui->pbOpenLightC, ui->pbOpenLightD};
+        QPushButton *arrCloseKeys[4] = {ui->pbCloseLightA, ui->pbCloseLihgtB,
+                                        ui->pbCloseLightC, ui->pbCloseLightD};
+        QList<QWidget *> lstLightGroups;
+        for (int i32Lamp = 0; i32Lamp < 4; ++i32Lamp)
+        {
+            QWidget *pGroup = new QWidget(pLightHost);
+            pGroup->setObjectName(QStringLiteral("LightGroup%1").arg(kpstrLightNames[i32Lamp]));
+            QHBoxLayout *pGroupLayout = new QHBoxLayout(pGroup);
+            pGroupLayout->setContentsMargins(0, 0, 0, 0);
+            pGroupLayout->setSpacing(10);
+
+            QLabel *pLamp = new QLabel(pGroup);
+            pLamp->setObjectName(QStringLiteral("LightLamp%1").arg(i32Lamp));
+            pLamp->setFixedSize(kLampSize, kLampSize);
+            // 灯按**中线**和两个键对齐(键区高 78、灯 36), 顶对齐会显得灯"吊"在上面
+            pLamp->setAlignment(Qt::AlignCenter);
+            pGroupLayout->addWidget(pLamp, 0, Qt::AlignVCenter);
+            m_lstLightLamps.append(pLamp);
+            pLamp->setPixmap(m_pmLampOff);
+
+            QVBoxLayout *pKeys = new QVBoxLayout();
+            pKeys->setContentsMargins(0, 0, 0, 0);
+            pKeys->setSpacing(6);
+            const QList<QPushButton *> lstKeys{arrOpenKeys[i32Lamp], arrCloseKeys[i32Lamp]};
+            for (QPushButton *pButton : lstKeys)
+            {
+                pButton->setFixedSize(kLightKeyWidth, 36);   // 宽度减半, 高度仍是 24×1.5
+                pButton->show();
+                pKeys->addWidget(pButton);
+            }
+            pGroupLayout->addLayout(pKeys);
+            lstLightGroups.append(pGroup);
+        }
+
+        // 2×2 摆放: 第 0 行 A|C, 第 1 行 B|D
+        for (int i32Row = 0; i32Row < 2; ++i32Row)
+        {
+            QHBoxLayout *pRow = new QHBoxLayout();
+            pRow->setContentsMargins(0, 0, 0, 0);
+            pRow->setSpacing(0);
+            pRow->addStretch(1);
+            pRow->addWidget(lstLightGroups.at(i32Row));
+            pRow->addStretch(1);
+            pRow->addWidget(lstLightGroups.at(i32Row + 2));
+            pRow->addStretch(1);
+            pHostLayout->addLayout(pRow);
+        }
+
+        // 全部摆好以后再统一刷一次状态: 建灯的时候布局还没装配完,
+        // 那时调 SetLightLamp 会和 QLabel 的 sizeHint 抢同一个时机(实测会让其中一组宽度算成 0),
+        // 放到这里既安全又只走一次。
+        SetAllLightLampsOff();
+
+        // ---- 料仓区: 两个键横着并排铺满卡片（2026-11-25 需求）----
+        // .ui 里料仓是"标签 + 参数编辑器"占 row 0~2、按钮竖排在 row 3/4 的单列网格。
+        // 运行页把标签和编辑器全隐藏后, 只剩"发送运动/停止"两个 90px 宽的小键贴左上角,
+        // 卡片其余部分全空 —— 这就是"料仓那片太浪费"的根源。
+        // 运行页改为: 两个键并排, 高度 ×1.5 到 36。
+        // 弹簧 horizontalSpacer_3 也要摘掉, 否则它会在右边继续吸走富余宽度。
+        ui->gridLayout_7->removeItem(ui->horizontalSpacer_3);
+        ui->gridLayout_7->removeWidget(ui->pbBinStartMotion);
+        ui->gridLayout_7->removeWidget(ui->pbBinStopMotion);
+        QHBoxLayout *pBinRow = new QHBoxLayout();
+        pBinRow->setContentsMargins(0, 0, 0, 0);
+        pBinRow->setSpacing(8);
+        // 长度再缩一半(2026-11-25 十六次): 原来是等分铺满整张卡, 各 304px,
+        // 4 个字的键长到 300 多显得空荡、字还小。现在各 152px(304 的一半)居中摆,
+        // 左右各留一段等量空白 —— 与上方光源四组的居中方式一致, 不会一边贴边一边空。
+        // 宽度写死而不是按卡片宽度算: 卡片宽度要等 show() 之后才有值, 而这里在构造期,
+        // 写死 152 在 1400/最大化两种窗口下都稳定。
+        const int kBinButtonWidth = 152;
+        const int kBinButtonHeight = 36;
+        pBinRow->addStretch(1);
+        pBinRow->addWidget(ui->pbBinStartMotion);
+        pBinRow->addWidget(ui->pbBinStopMotion);
+        pBinRow->addStretch(1);
+        // 跨满原有三列放在 row 0：row 0~2 上只剩隐藏的标签/编辑器, 列宽会塌成 0,
+        // 这一行实际就是整张卡的内容行（原 row 3/4 的占位随按钮移走而空掉）。
+        ui->gridLayout_7->addLayout(pBinRow, 0, 0, 1, 3);
+        const QList<QPushButton *> BinButtons = {ui->pbBinStartMotion, ui->pbBinStopMotion};
+        for (QPushButton *pButton : BinButtons)
+        {
+            pButton->setFixedSize(kBinButtonWidth, kBinButtonHeight);
+        }
+
+        // 两张卡里各有一个纵向弹簧(.ui 里 sizeHint 40px)。它们的职责只是"把内容顶到
+        // 上边", 但 40px 的建议高度会跟着算进控制卡的自然高度 —— 实测把卡片顶高了
+        // 22px(507→529), 多出来的全是空白。这里把建议高度清零, 只留 Expanding。
+        ui->verticalSpacer_7->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        ui->verticalSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+    }
+
+    // ---- 运动页 11 个方向/动作键: 圆角正方形 + 绿色单色图标（2026-11-24 需求）----
+    // "发送运动"/"停止" 是操作按钮，不在此列，保持矩形与文字。
+    //
+    // 尺寸只能写在代码里：.ui 里逐个设 minimumSize+maximumSize 要写 22 个属性块，
+    // 而且光有尺寸还不够 —— 这三个网格列原本靠"缺省平均分配富余宽度"把按钮拉成
+    // 宽矩形，必须同时把富余宽度让给第 3 列（horizontalSpacer_9 所在列），
+    // 否则按钮固定成方块后会被居中留缝，看着反而更散。
+    // 圆角与内边距在 style/app.qss 的 QPushButton#pbUp ... 规则里（样式归样式表）。
+    {
+        // .ui 里的中文标题保留着当"素材说明"(Designer 里还看得懂),
+        // 运行时清空换成图标 + tooltip —— 改图标不必进 Designer 重新摆控件。
+        const QList<QPair<QPushButton *, QString>> lstIconKeys = {
+            {ui->pbUp,        QStringLiteral("up")},
+            {ui->pbDown,      QStringLiteral("down")},
+            {ui->pbLeft,      QStringLiteral("left")},
+            {ui->pbRight,     QStringLiteral("right")},
+            {ui->pbGather,    QStringLiteral("gather")},
+            {ui->pbHCentered, QStringLiteral("hcentered")},
+            {ui->pbVCentered, QStringLiteral("vcentered")},
+            {ui->pbDisperse,  QStringLiteral("disperse")},
+            {ui->pbG1,        QStringLiteral("g1")},
+            {ui->pbG2,        QStringLiteral("g2")},
+            {ui->pbFlip,      QStringLiteral("flip")}};
+
+        for (const QPair<QPushButton *, QString> &sPair : lstIconKeys)
+        {
+            QPushButton *pKey = sPair.first;
+
+            // 64×64 方块 + 32px 图标: 图标占一半, 车间里 1m 外也认得出;
+            // 64 是"卡片不被顶高、整页不出滚动条"的上限(试过 68, 出滚动条)。
+            pKey->setFixedSize(64, 64);
+            pKey->setIcon(MakeMotionIcon(sPair.second));
+            pKey->setIconSize(QSize(36, 36));
+
+            // 文字转 tooltip: 必须先取 text 再清空
+            pKey->setToolTip(pKey->text());
+            pKey->setAccessibleName(pKey->text());
+            pKey->setText(QString());
+        }
+        // "发送运动/停止" 不是方块, 但固定成 56 的方块后, 网格会把富余宽度
+        // 全塞给它们所在列, 两个按钮会被拉成通栏长条(2026-11-24 实测)。
+        // 定宽 + 第 3 列吃掉余量, 恢复"键区在左、操作键在右"的版式。
+        //
+        // 高度必须显式给 64: QPushButton 的垂直 sizePolicy 是 Fixed, 不设高度时
+        // 取 sizeHint(25px), 在 64 高的行里居中成一条"小扁条", 和方块键一比高低不齐
+        // (2026-11-24 用户反馈)。两键分别落在 row3/row4, 行高本来就是 64, 对齐后等高。
+        ui->pbSendMotion->setFixedSize(104, 64);
+        ui->pbSendMotionStop->setFixedSize(104, 64);
+        ui->gridLayout_3->setColumnStretch(3, 1);
     }
 
     ui->dialAngleRegulation->setTracking(true);
@@ -187,6 +470,23 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
     ui->dspVMotionTime->setValue(0.8);
     ui->dspIntervalTime->setValue(0.1);
 
+    // 时间上限统一 9999s(2026-11-25 协议时间域 2→4 字节, 秒×10 最大 99990)。
+    // 范围写在代码里、不写 .ui: 用户的 Designer 重存 .ui 会把它们改回 5000 / 99.99。
+    // 小数位同时收到 1 位 —— 协议只能表达 0.1s, 留 2 位小数会让用户以为 0.85 生效,
+    // 实际组帧时按 0.1s 刻度四舍五入成 0.9。
+    // dspbTime = 单个运动键的"动作时长"(存进按钮参数的 timeuse), 与料仓、光源同属时间参数
+    for (QDoubleSpinBox *pTime : {ui->dspbTime, ui->dspHMotionTime, ui->dspVMotionTime,
+                                  ui->dspIntervalTime, ui->dspbBinTime})
+    {
+        pTime->setDecimals(1);
+        pTime->setRange(0.0, kMaxTimeUse);
+        pTime->setSingleStep(0.1);
+    }
+    for (QSpinBox *pTime : {ui->spLightATime, ui->spLightBTime, ui->spLightCTime, ui->spLightDTime})
+    {
+        pTime->setRange(0, static_cast<int>(kMaxTimeUse));
+    }
+
     // pbGather 交替序列的兜底: 若中途某段响应超时(引擎清空队列, 剩余段不会再有完成帧),
     // 计数会卡住, 界面按钮永远不恢复 —— 到点强制复位
     m_pMotionSeqWatchdog = new QTimer(this);
@@ -201,8 +501,8 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
     });
 
     connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
-        // 只读面板(模式数据)的按钮被 SetReadOnly 禁用, 不能被这里"恢复"回可点状态
-        if (m_bReadOnly)
+        // 未连接(不允许下发)的面板: 按钮本来就该一直灰着, 不能被完成帧"恢复"成可点
+        if (!m_bRunEnabled)
         {
             return;
         }
@@ -273,31 +573,96 @@ bool ControlPanel::IsMotionRunning(void) const
 }
 
 
+bool ControlPanel::IsBinRunning(void) const
+{
+    return ui->pbBinStopMotion->isEnabled();
+}
+
+
+// 只读 = 不允许下发。2026-11-25 二十次起,"配置数据"窗口里的面板不再是永久只读:
+// 它同样要能发运动/料仓/光源(用户要"配完直接发一条看效果"), 只是初始(未连接)不可发。
 void ControlPanel::SetReadOnly(const bool bReadOnly)
 {
-    m_bReadOnly = bReadOnly;
+    m_bMotionUiLocked = false;
 
-    if (bReadOnly)
+    SetRunEnabled(!bReadOnly);
+}
+
+
+// 允许/禁止本面板下发运行指令。
+//   bEnabled = true : 一律回到空闲态 —— 发送键可点、停止键灰、运动类型键全开、
+//                     料仓"可开/不可停"、四路光源"可开/不可关"、状态灯全灰。
+//   bEnabled = false: 14 个运行键全部禁用(未连接时点了也不会有应答, 必须点不动,
+//                     否则按钮会停在"发送已灰/停止可点"的半截态里永远回不来)。
+// 运动类型按钮不受影响: 配置页要随时能点选, 才能切换正在编辑的那份参数。
+void ControlPanel::SetRunEnabled(const bool bEnabled)
+{
+    m_bRunEnabled = bEnabled;
+
+    if (bEnabled)
     {
-        // 只读面板(模式数据)不连接通信引擎: 这些按钮点了也不会下发, 必须禁用,
-        // 否则点击后按钮会被置灰且永远收不到 sigMotionTerminate 恢复, 表现为"点了没反应"
-        ui->pbSendMotion->setEnabled(false);
-        ui->pbSendMotionStop->setEnabled(false);
-        ui->pbG1->setEnabled(false);
-        ui->pbG2->setEnabled(false);
-        ui->pbBinStartMotion->setEnabled(false);
-        ui->pbBinStopMotion->setEnabled(false);
-        ui->pbOpenLightA->setEnabled(false);
-        ui->pbCloseLightA->setEnabled(false);
-        ui->pbOpenLightB->setEnabled(false);
-        ui->pbCloseLihgtB->setEnabled(false);
-        ui->pbOpenLightC->setEnabled(false);
-        ui->pbCloseLightC->setEnabled(false);
-        ui->pbOpenLightD->setEnabled(false);
-        ui->pbCloseLightD->setEnabled(false);
+        // 进来时序列/看门狗可能是上一轮留下的(断连时没清干净), 先归零
+        ResetMotionSequence();
+        RestoreIdleButtons();
+        return;
+    }
 
-        // 只读面板的运动类型按钮保持可点(编辑参数要先选按钮), 但不能顺手把锁解了
-        m_bMotionUiLocked = false;
+    ResetMotionSequence();
+    m_bMotionUiLocked = false;
+
+    const QList<QPushButton *> lstRunKeys = {
+        ui->pbSendMotion, ui->pbSendMotionStop, ui->pbG1, ui->pbG2,
+        ui->pbBinStartMotion, ui->pbBinStopMotion,
+        ui->pbOpenLightA, ui->pbCloseLightA,
+        ui->pbOpenLightB, ui->pbCloseLihgtB,
+        ui->pbOpenLightC, ui->pbCloseLightC,
+        ui->pbOpenLightD, ui->pbCloseLightD};
+    for (QPushButton *pButton : lstRunKeys)
+    {
+        pButton->setEnabled(false);
+    }
+
+    // 光源状态灯跟着回灰(运行页才有灯, 配置面板的列表是空的, SetLightLamp 内部判空)
+    SetAllLightLampsOff();
+    NotifyRunState();
+}
+
+
+// 两个面板之间抄"运行类"按钮态(见头文件说明)
+void ControlPanel::SyncRunButtonStates(const ControlPanel *pSource)
+{
+    if (pSource == nullptr)
+    {
+        return;
+    }
+
+    const QList<QPair<QPushButton *, QPushButton *>> lstPairs = {
+        {ui->pbSendMotion, pSource->ui->pbSendMotion},
+        {ui->pbSendMotionStop, pSource->ui->pbSendMotionStop},
+        {ui->pbBinStartMotion, pSource->ui->pbBinStartMotion},
+        {ui->pbBinStopMotion, pSource->ui->pbBinStopMotion},
+        {ui->pbOpenLightA, pSource->ui->pbOpenLightA},
+        {ui->pbCloseLightA, pSource->ui->pbCloseLightA},
+        {ui->pbOpenLightB, pSource->ui->pbOpenLightB},
+        {ui->pbCloseLihgtB, pSource->ui->pbCloseLihgtB},
+        {ui->pbOpenLightC, pSource->ui->pbOpenLightC},
+        {ui->pbCloseLightC, pSource->ui->pbCloseLightC},
+        {ui->pbOpenLightD, pSource->ui->pbOpenLightD},
+        {ui->pbCloseLightD, pSource->ui->pbCloseLightD}};
+
+    // 注意要与"本面板能不能下发"取与: 未连接时抄进来的只会是"可点",
+    // 直接照抄会把一个未连接的面板抄成可点的(点了发不出去, 按钮还会卡在锁定态)。
+    // 所以未连接时这里保持全灰, 连接成功后再抄一次才生效。
+    for (const QPair<QPushButton *, QPushButton *> &sPair : lstPairs)
+    {
+        sPair.first->setEnabled(m_bRunEnabled && sPair.second->isEnabled());
+    }
+
+    // 序列计数/看门狗属于各自实例, 抄按钮态时不能把对方的计数搬过来
+    m_u32MotionSeqRemaining = 0;
+    if (m_pMotionSeqWatchdog != nullptr)
+    {
+        m_pMotionSeqWatchdog->stop();
     }
 }
 
@@ -321,7 +686,7 @@ void ControlPanel::SetMotionTypeButtonsEnabled(const bool bEnabled)
 //   3) 点了"停止运动" → 引擎清队时发 sigMotionTerminate
 void ControlPanel::LockMotionUi(void)
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -334,14 +699,17 @@ void ControlPanel::LockMotionUi(void)
     ui->pbG1->setEnabled(false);
     ui->pbG2->setEnabled(false);
     SetMotionTypeButtonsEnabled(false);
+
+    // 状态灯: 按下发后的真实界面态刷新(此时停止键已可用 → 运动灯亮)
+    NotifyRunState();
 }
 
 
 // 唯一的统一恢复点: 振动盘(含运动类型按钮) / 料仓 / 光源 / 组合运动按钮全部回到空闲态
 void ControlPanel::RestoreIdleButtons(void)
 {
-    // 只读面板的按钮由 SetReadOnly 管, 这里不能把它"恢复"成可点
-    if (m_bReadOnly)
+    // 不允许下发的面板(未连接): 按钮保持全灰, 这里不能把它"恢复"成可点
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -377,6 +745,30 @@ void ControlPanel::RestoreIdleButtons(void)
     ui->pbCloseLightC->setEnabled(false);
     ui->pbOpenLightD->setEnabled(true);
     ui->pbCloseLightD->setEnabled(false);
+    // 光源按钮回到"可开、不可关"就等于四路都灭了, 状态灯必须跟着回灰
+    SetAllLightLampsOff();
+
+    // 状态灯: 这是唯一的空闲恢复点, 运动/料仓两盏灯都在这里回灰
+    NotifyRunState();
+}
+
+
+// 右下角"状态"卡片的两盏运行灯(运动 / 料仓)。
+// 状态直接读按钮的使能态, 与界面显示同源 —— 不另存标志位:
+// 标志位和按钮是同一件事的两份拷贝, 断连/超时/停止路径上漏掉一处就会出现
+// "灯还绿着但按钮已经回到空闲"的假状态, 而按钮态本身就是用户看到的真相。
+//   运动: 界面锁(单条/G1/G2/交替序列) 或 序列计数>0 或 "停止"键可用
+//   料仓: 料仓"停止"键可用(空闲时料仓是"可开 / 不可停")
+void ControlPanel::NotifyRunState(void)
+{
+    // 这里不再按"是否允许下发"早退: 断连的那一刻按钮已被全部禁用,
+    // 算出来就是"两盏灯都灰", 正是需要发出去的那一帧状态。
+    // 早退会让断连后灯停在绿色("灯还绿着, 但按钮已经点不动了")。
+    const bool bMotionRunning = m_bMotionUiLocked ||
+                                (m_u32MotionSeqRemaining > 0) ||
+                                ui->pbSendMotionStop->isEnabled();
+    emit sigMotionRunningChanged(bMotionRunning);
+    emit sigBinRunningChanged(ui->pbBinStopMotion->isEnabled());
 }
 
 
@@ -385,7 +777,7 @@ void ControlPanel::RestoreIdleButtons(void)
 // 只复位计数 + 解锁按钮
 void ControlPanel::ResetMotionUiState(void)
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -452,11 +844,13 @@ void ControlPanel::ApplyKeyParams(const GeneralKeyParams::KeyParams &sParams)
 
 
 // 状态行: 正常用深灰, 失败/超时用红色, 一眼能区分"读到了"和"没读到"
+// 这两句是"随数据变化"的颜色, 不能交给 app.qss(样式表里静态颜色无法按状态切换),
+// 也是本工程唯一允许保留 setStyleSheet 的地方。色值已对齐主题的语义色。
 void ControlPanel::SetKeyParamsStatus(const QString &qstrText, const bool bError)
 {
     ui->lbKeyParamsStatus->setText(qstrText);
-    ui->lbKeyParamsStatus->setStyleSheet(bError ? QStringLiteral("color: #C02626;")
-                                                : QStringLiteral("color: #202020;"));
+    ui->lbKeyParamsStatus->setStyleSheet(bError ? QStringLiteral("color: #DC2626;")
+                                                : QStringLiteral("color: #374151;"));
 }
 
 
@@ -498,9 +892,9 @@ void ControlPanel::ResetKeyParamsUiState(void)
 
 
 // 获取配置: 发 0x15, 等下位机回 0x16。
-// 注意这里没有 m_bReadOnly 早退 —— 固件参数页只在"配置数据"窗口里出现,
-// 而那个面板是 SetReadOnly(true) 的; 它发送的是"读写下位机 Flash"的指令,
-// 不是改本地面板参数, 所以只读面板也必须能发。
+// 注意这里不看 m_bRunEnabled —— 固件参数页只在"配置数据"窗口里出现,
+// 它发送的是"读写下位机 Flash"的指令, 不是运行指令, 可用性只由"是否已连接"
+// (m_bKeyParamsAvailable)决定。
 void ControlPanel::on_pbGetKeyParams_clicked()
 {
     if (m_bKeyParamsPending || !m_bKeyParamsAvailable)
@@ -795,6 +1189,13 @@ void ControlPanel::OnMotionGroupButtonClicked(QAbstractButton *pButton)
     {
         if (pButton == Button.pButton)
         {
+            // 参数表为空说明配置文件缺失(GetSettingParams 找不到 ini 会提前返回),
+            // 此时 .first() 会直接崩 —— 宁可这一下不响应, 也不能点一下就闪退
+            if (Button.qlstMotionParams.isEmpty())
+            {
+                continue;
+            }
+
             m_qstrCurrentMotionButton = Button.qstrName;
 
             // 将当前按钮的运动参数更新到界面上
@@ -1063,7 +1464,7 @@ int8_t ControlPanel::GetModifyCoeff(const GeneralMotion::MotionParams::MotionInd
 // 计数归零才恢复按钮, 中途可用"停止"打断。
 void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QString &qstrGroupName)
 {
-    if (m_bReadOnly || pGroupMotion == nullptr)
+    if (!m_bRunEnabled || pGroupMotion == nullptr)
     {
         return;
     }
@@ -1139,7 +1540,7 @@ void ControlPanel::on_pbG2_clicked()
 void ControlPanel::on_pbSendMotion_clicked()
 {
     // 兜底: 运动进行中(按钮已置灰)不接受重复下发, 否则会往队列里再塞一条运动
-    if (m_bReadOnly || m_bMotionUiLocked)
+    if (!m_bRunEnabled || m_bMotionUiLocked)
     {
         return;
     }
@@ -1490,10 +1891,11 @@ void ControlPanel::CopyButtonParams(const ControlPanel *pOther)
 
 void ControlPanel::on_pbBinStartMotion_clicked()
 {
-    qDebug() << "send bin motion, send Enable:" << m_bReadOnly;
+    qDebug() << "send bin motion, run enabled:" << m_bRunEnabled;
 
-    // 只读面板不下发指令: 其信号未连接通信引擎, 发出去无人接收
-    if (m_bReadOnly)
+    // 兜底: 未连接时本面板的运行键已全灰, 正常点不到; 这里再挡一次,
+    // 避免有人绕过界面直接调槽把按钮带进"已发送但等不到应答"的半截态
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1519,11 +1921,13 @@ void ControlPanel::on_pbBinStartMotion_clicked()
 
     ui->pbBinStartMotion->setEnabled(false);
     ui->pbBinStopMotion->setEnabled(true);
+    // 状态灯: 料仓开始动 → 右下角"料仓"灯转绿(停/完成帧到达时由 RestoreIdleButtons 回灰)
+    NotifyRunState();
 }
 
 void ControlPanel::on_pbBinStopMotion_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1534,17 +1938,17 @@ void ControlPanel::on_pbBinStopMotion_clicked()
 
 void ControlPanel::on_pbOpenLightA_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
 
-    // 光源 A(索引 1): 亮度 0~100, 保持时间单位 s, 协议层 x10
+    // 光源 A(索引 1): 亮度 0~100, 保持时间单位 s, 协议层 x10(4 字节, 上限 9999s)
     QByteArray qbtData;
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_A,
                                  static_cast<uint8_t>(ui->spLightABrightness->value()),
-                                 static_cast<uint16_t>(qMin(ui->spLightATime->value() * 10, 65535)),
+                                 static_cast<uint32_t>(ui->spLightATime->value() * 10),
                                  ui->cbLightAKeep->isChecked(),
                                  qbtData, qbtRespond);
 
@@ -1552,11 +1956,12 @@ void ControlPanel::on_pbOpenLightA_clicked()
 
     ui->pbOpenLightA->setEnabled(false);
     ui->pbCloseLightA->setEnabled(true);
+    SetLightLamp(0, true);
 }
 
 void ControlPanel::on_pbCloseLightA_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1570,11 +1975,12 @@ void ControlPanel::on_pbCloseLightA_clicked()
 
     ui->pbOpenLightA->setEnabled(true);
     ui->pbCloseLightA->setEnabled(false);
+    SetLightLamp(0, false);
 }
 
 void ControlPanel::on_pbOpenLightB_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1584,7 +1990,7 @@ void ControlPanel::on_pbOpenLightB_clicked()
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_B,
                                  static_cast<uint8_t>(ui->spLightBBrightness->value()),
-                                 static_cast<uint16_t>(qMin(ui->spLightBTime->value() * 10, 65535)),
+                                 static_cast<uint32_t>(ui->spLightBTime->value() * 10),
                                  ui->cbLightBKeep->isChecked(),
                                  qbtData, qbtRespond);
 
@@ -1592,11 +1998,12 @@ void ControlPanel::on_pbOpenLightB_clicked()
 
     ui->pbOpenLightB->setEnabled(false);
     ui->pbCloseLihgtB->setEnabled(true);
+    SetLightLamp(1, true);
 }
 
 void ControlPanel::on_pbCloseLihgtB_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1610,11 +2017,12 @@ void ControlPanel::on_pbCloseLihgtB_clicked()
 
     ui->pbOpenLightB->setEnabled(true);
     ui->pbCloseLihgtB->setEnabled(false);
+    SetLightLamp(1, false);
 }
 
 void ControlPanel::on_pbOpenLightC_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1623,7 +2031,7 @@ void ControlPanel::on_pbOpenLightC_clicked()
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_C,
                                  static_cast<uint8_t>(ui->spLightCBrightness->value()),
-                                 static_cast<uint16_t>(qMin(ui->spLightCTime->value() * 10, 65535)),
+                                 static_cast<uint32_t>(ui->spLightCTime->value() * 10),
                                  ui->cbLightCKeep->isChecked(),
                                  qbtData, qbtRespond);
 
@@ -1631,11 +2039,12 @@ void ControlPanel::on_pbOpenLightC_clicked()
 
     ui->pbOpenLightC->setEnabled(false);
     ui->pbCloseLightC->setEnabled(true);
+    SetLightLamp(2, true);
 }
 
 void ControlPanel::on_pbCloseLightC_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1648,11 +2057,12 @@ void ControlPanel::on_pbCloseLightC_clicked()
 
     ui->pbOpenLightC->setEnabled(true);
     ui->pbCloseLightC->setEnabled(false);
+    SetLightLamp(2, false);
 }
 
 void ControlPanel::on_pbOpenLightD_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1661,7 +2071,7 @@ void ControlPanel::on_pbOpenLightD_clicked()
     QByteArray qbtRespond;
     m_pProtocol->LightOnProtocol(GeneralProtocolItems::u8SW_LIGHT_INDEX_D,
                                  static_cast<uint8_t>(ui->spLightDBrightness->value()),
-                                 static_cast<uint16_t>(qMin(ui->spLightDTime->value() * 10, 65535)),
+                                 static_cast<uint32_t>(ui->spLightDTime->value() * 10),
                                  ui->cbLightDKeep->isChecked(),
                                  qbtData, qbtRespond);
 
@@ -1669,11 +2079,12 @@ void ControlPanel::on_pbOpenLightD_clicked()
 
     ui->pbOpenLightD->setEnabled(false);
     ui->pbCloseLightD->setEnabled(true);
+    SetLightLamp(3, true);
 }
 
 void ControlPanel::on_pbCloseLightD_clicked()
 {
-    if (m_bReadOnly)
+    if (!m_bRunEnabled)
     {
         return;
     }
@@ -1686,47 +2097,79 @@ void ControlPanel::on_pbCloseLightD_clicked()
 
     ui->pbOpenLightD->setEnabled(true);
     ui->pbCloseLightD->setEnabled(false);
+    SetLightLamp(3, false);
 }
 
 // 光源保持时间到: 下位机自发 0x0E 完成帧(带索引), 恢复对应路光源按钮。
 // u8Index: 1~4 对应 A~D, 0 = 全关(四路全部恢复)
-void ControlPanel::OnLightOffFinish(const uint8_t &u8Index)
+// 光源状态灯: 灰=灭 / 绿=亮。
+// 灯只在运行页(bFlatRun)创建, 配置窗口那个实例的 m_lstLightLamps 是空的 ——
+// 所以这里必须判空, 否则在配置窗口里点开/关灯会直接崩。
+// iIndex: 0~3 = A~D(协议索引 1~4 差 1, 转换只在调用处做一次)
+void ControlPanel::SetLightLamp(const int iIndex, const bool bOn)
 {
-    // 只读面板(模式数据)未连接通信引擎, 不会收到本信号, 这里兜底
-    if (m_bReadOnly)
+    if (iIndex < 0 || iIndex >= m_lstLightLamps.size())
     {
         return;
     }
 
-    if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_A)
+    if (QLabel *pLamp = m_lstLightLamps.at(iIndex))
     {
-        ui->pbOpenLightA->setEnabled(true);
-        ui->pbCloseLightA->setEnabled(false);
+        pLamp->setPixmap(bOn ? m_pmLampOn : m_pmLampOff);
+        // 现场不连上位机时也能鼠标悬停确认这一路是开还是关
+        const QString qstrName = QString::fromLatin1(kpstrLightNames[qBound(0, iIndex, 3)]);
+        pLamp->setAccessibleName(QStringLiteral("%1 光源状态").arg(qstrName));
+        pLamp->setToolTip(QStringLiteral("%1 光源: %2")
+                              .arg(qstrName, bOn ? QStringLiteral("已开启") : QStringLiteral("已关闭")));
     }
-    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_B)
+}
+
+
+void ControlPanel::SetAllLightLampsOff(void)
+{
+    for (int i32Index = 0; i32Index < m_lstLightLamps.size(); ++i32Index)
     {
-        ui->pbOpenLightB->setEnabled(true);
-        ui->pbCloseLihgtB->setEnabled(false);
+        SetLightLamp(i32Index, false);
     }
-    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_C)
+}
+
+
+void ControlPanel::OnLightOffFinish(const uint8_t &u8Index)
+{
+    // 未连接时不会收到本信号, 这里兜底(不按"能不能下发"早退: 配置窗口的面板
+    // 现在也会收这个信号, 它自己也发过光源指令, 按钮同样要能恢复)
+    if (!m_bRunEnabled)
     {
-        ui->pbOpenLightC->setEnabled(true);
-        ui->pbCloseLightC->setEnabled(false);
+        return;
     }
-    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_D)
+
+    // 四路写成表: 索引 ↔ 开/关键 ↔ 状态灯下标一一对应。
+    // 原来是一条 if / else if 链, 加状态灯以后每个分支都要改两处, 漏一处就是
+    // "灯灭了但按钮还能点"这种半截状态, 用表循环只有一处映射。
+    struct LightChannel
     {
-        ui->pbOpenLightD->setEnabled(true);
-        ui->pbCloseLightD->setEnabled(false);
-    }
-    else if (u8Index == GeneralProtocolItems::u8SW_LIGHT_INDEX_ALL)
+        uint8_t u8Index;
+        QPushButton *pOpen;
+        QPushButton *pClose;
+        int iLamp;
+    };
+    const LightChannel arrChannels[4] = {
+        {GeneralProtocolItems::u8SW_LIGHT_INDEX_A, ui->pbOpenLightA, ui->pbCloseLightA, 0},
+        {GeneralProtocolItems::u8SW_LIGHT_INDEX_B, ui->pbOpenLightB, ui->pbCloseLihgtB, 1},
+        {GeneralProtocolItems::u8SW_LIGHT_INDEX_C, ui->pbOpenLightC, ui->pbCloseLightC, 2},
+        {GeneralProtocolItems::u8SW_LIGHT_INDEX_D, ui->pbOpenLightD, ui->pbCloseLightD, 3}};
+
+    for (const LightChannel &sChannel : arrChannels)
     {
-        ui->pbOpenLightA->setEnabled(true);
-        ui->pbCloseLightA->setEnabled(false);
-        ui->pbOpenLightB->setEnabled(true);
-        ui->pbCloseLihgtB->setEnabled(false);
-        ui->pbOpenLightC->setEnabled(true);
-        ui->pbCloseLightC->setEnabled(false);
-        ui->pbOpenLightD->setEnabled(true);
-        ui->pbCloseLightD->setEnabled(false);
+        // u8Index == ALL(0) 表示四路全关, 否则只恢复索引匹配的那一路
+        if (u8Index != GeneralProtocolItems::u8SW_LIGHT_INDEX_ALL &&
+            u8Index != sChannel.u8Index)
+        {
+            continue;
+        }
+
+        sChannel.pOpen->setEnabled(true);
+        sChannel.pClose->setEnabled(false);
+        SetLightLamp(sChannel.iLamp, false);
     }
 }

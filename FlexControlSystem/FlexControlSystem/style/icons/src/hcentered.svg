@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 水平居中: 左右两侧向中轴收拢 -->
+  <g fill="none" stroke="#16A34A" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 21 L22 32 L11 43"/>
+    <path d="M53 21 L42 32 L53 43"/>
+  </g>
+  <path d="M32 18 V46" fill="none" stroke="#16A34A" stroke-width="4" stroke-linecap="round"/>
+</svg>

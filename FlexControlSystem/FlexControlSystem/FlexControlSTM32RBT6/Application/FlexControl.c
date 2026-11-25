@@ -7,6 +7,7 @@
 #include "Network.h"
 #include "SaveParams.h"
 #include "KeyParameters.h"
+#include "Version.h"
 #include "Timer.h"
 #include "PowerMonitor.h"
 #include "spi.h"
@@ -201,7 +202,7 @@ void LightOnHandler(const SerialInfo *pInfo)
 	sParams.u8Brightness = pInfo->u8LightBrightness;
 	// "保持"勾选 = 无限保持。下位机本来就用"保持时间 0"表示常亮,
 	// 这里把标志折算成 0, 不需要给 LightControl 增加新的状态位。
-	sParams.u16KeepTime = pInfo->u8InfiniteTime ? 0 : pInfo->u16LightKeepTime;
+	sParams.u32KeepTime = pInfo->u8InfiniteTime ? 0 : pInfo->u32LightKeepTime;
 
 	SendLightInfo(&sParams);
 }
@@ -332,6 +333,24 @@ static void SaveKeyParamsHandler(const SerialInfo *pInfo)
 }
 
 
+/**
+ * @brief  获取固件版本, 回 0x1A + 3 字节(主/次/修订)
+ * @note   版本号只在 Version.h 里定义一次(当前 0.1.0), 这里只做搬运 ——
+ *         改版本不要在这里写字面量, 否则和 Version.h 会两处不一致。
+ *         上位机连接成功后读一次, 不轮询。
+ */
+static void GetFirmwareVersionHandler(void)
+{
+	uint8_t au8Version[3];
+
+	au8Version[0] = (uint8_t)FW_VERSION_MAJOR;
+	au8Version[1] = (uint8_t)FW_VERSION_MINOR;
+	au8Version[2] = (uint8_t)FW_VERSION_PATCH;
+
+	SendSerialRespond(RESPOND_GET_FW_VERSION, au8Version);
+}
+
+
 void SerialRecvInfoHandle(void)
 {
 	static SerialInfo sSerialInfo;
@@ -392,6 +411,10 @@ void SerialRecvInfoHandle(void)
 
 			case INFO_SAVE_KEY_PARAMS:
 				SaveKeyParamsHandler(&sSerialInfo);
+				break;
+
+			case INFO_GET_FW_VERSION:
+				GetFirmwareVersionHandler();
 				break;
 
 			default:

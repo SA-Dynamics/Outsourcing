@@ -1,0 +1,5 @@
+// Windows 可执行文件资源(2026-11-25 加入)。
+// 这一行就是资源管理器/任务栏/Alt+Tab 里看到的那张图标脸:
+// app.ico 由 build-check/make_logo.bat 从 image/logo.png 生成(含 16~256 七个尺寸),
+// 改 logo 请改源图后重跑该脚本, 不要手改 ico。
+IDI_ICON1               ICON    "app.ico"

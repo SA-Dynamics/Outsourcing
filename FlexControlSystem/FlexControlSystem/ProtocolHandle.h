@@ -94,13 +94,14 @@ public:
     virtual void BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond)
     { Q_UNUSED(qbtCmd); Q_UNUSED(qbtRespond); }
 
-    // 打开光源(0x0B): u16KeepTime 为保持时间, 单位 100ms(即秒数x10)
+    // 打开光源(0x0B): u32KeepTime 为保持时间, 单位 100ms(即秒数x10), 4 字节大端
+    // (2026-11-25 由 2 字节扩到 4 字节, 上限 9999s → 99990)
     // bInfiniteKeep = true 时数据域末尾追加 1(无限保持, 直到关闭指令);
     // 下位机把它等价于"保持时间 0 = 常亮", 但仍按协议显式下发该字节
     virtual void LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
-                                 const uint16_t u16KeepTime, const bool bInfiniteKeep,
+                                 const uint32_t u32KeepTime, const bool bInfiniteKeep,
                                  QByteArray &qbtSendCmd, QByteArray &qbtRespond)
-    { Q_UNUSED(u8Index); Q_UNUSED(u8Brightness); Q_UNUSED(u16KeepTime); Q_UNUSED(bInfiniteKeep);
+    { Q_UNUSED(u8Index); Q_UNUSED(u8Brightness); Q_UNUSED(u32KeepTime); Q_UNUSED(bInfiniteKeep);
       Q_UNUSED(qbtSendCmd); Q_UNUSED(qbtRespond); }
 
     // 关闭光源(0x0D/0x0E): u8Index = 1/2/3/4 只关 A/B/C/D, 0 关闭全部
@@ -135,6 +136,11 @@ public:
     // 应答由 ConnectiveHandle 按命令码 0x18 匹配
     virtual void SaveKeyParamsProtocol(const GeneralKeyParams::KeyParams &sParams, QByteArray &qbtCmd)
     { Q_UNUSED(sParams); Q_UNUSED(qbtCmd); }
+
+    // 获取固件版本(0x19/0x1A): 下发 1 字节 0x01, 应答 3 字节
+    // (主版本 / 次版本 / 修订, 各 1 字节), 应答由 ConnectiveHandle 按命令码 0x1A 匹配
+    virtual void GetFirmwareVersionProtocol(QByteArray &qbtCmd)
+    { Q_UNUSED(qbtCmd); }
 };
 
 

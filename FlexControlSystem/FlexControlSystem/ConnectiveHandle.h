@@ -59,6 +59,11 @@ public slots:
     // 结果通过 sigSaveKeyParamsResult 回传(1=成功 0=失败 -1=超时)
     void SendSaveKeyParamsCommand(const QByteArray &qbtData);
 
+    // 获取固件版本(0x19): 无参数, 应答 0x1A 为 3 字节(major/minor/patch),
+    // 按命令码 + 长度匹配。连接成功后由 ControlWidget 投递一次, 不周期轮询。
+    // 结果通过 sigGetFirmwareVersionResult 回传(空串 = 超时/旧固件不支持)
+    void SendGetFirmwareVersionCommand(void);
+
     // 线程收尾: 在对象所属线程内停止全部定时器并关闭底层通道
     // 由 QThread::finished 直接触发(同线程直连执行), 避免跨线程 killTimer 警告
     void Shutdown(void);
@@ -93,6 +98,10 @@ signals:
 
     // 保存固件参数结果: 1=下位机写入 Flash 成功, 0=写入失败, -1=应答超时
     void sigSaveKeyParamsResult(const int &iResult);
+
+    // 获取固件版本结果: "主.次.修订"(如 "0.1.0");
+    // 空串 = 应答超时或下位机没实现 0x19(旧固件), 界面显示 "--"
+    void sigGetFirmwareVersionResult(const QString &qstrVersion);
 
 protected:
     // 打开连接(串口/TCP), 成功返回 true, 失败返回 false
@@ -135,7 +144,7 @@ private:
 
     enum class SendCmdType { HeartBeat, MotionCmd, StopMotion,
                              BinMotion, BinStopMotion, LightOn, LightOff, SaveIp, GetIp,
-                             GetVoltage, GetKeyParams, SaveKeyParams };
+                             GetVoltage, GetKeyParams, SaveKeyParams, GetFwVersion };
 
     struct SendCmdStruct
     {
@@ -179,6 +188,12 @@ private:
     // 保存固件参数 应答里解析出来的结果(0=成功 1=失败),
     // 由接收匹配写入、引擎在收到应答后换算成 1/0 随 sigSaveKeyParamsResult 发出
     bool m_bSaveKeyOk = false;
+
+    // 获取固件版本 应答里解析出来的三个字节, 由接收匹配写入、
+    // 引擎在收到应答后格式化成 "主.次.修订" 随 sigGetFirmwareVersionResult 发出
+    quint8 m_u8FwVersionMajor = 0;
+    quint8 m_u8FwVersionMinor = 0;
+    quint8 m_u8FwVersionPatch = 0;
 };
 
 #endif // CONNECTIVEHANDLE_H

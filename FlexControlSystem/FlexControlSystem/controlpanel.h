@@ -6,12 +6,14 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QList>
+#include <QPixmap>
 
 #include "generalprotocol.h"
 //#include "ConnectiveHandle.h"
 
 class GroupMotion;
 class QDoubleSpinBox;
+class QLabel;
 
 namespace Ui {
 class ControlPanel;
@@ -33,10 +35,25 @@ public:
         QList<QMap<QString, QVariant>> qlstMotionParams;
     };
 
+    // 旧接口: 只读 = 本面板不允许下发运行指令。现在等价于 SetRunEnabled(false),
+    // 保留只为兼容既有调用点/测试("配置数据"面板打开初期就是不可发的)
     void SetReadOnly(const bool bReadOnly);
+    // 本面板是否允许下发运行指令(运动/料仓/光源)。
+    // 真正的判据只有"链路是否可用": 运行页与"配置数据"窗口里的面板都一样 ——
+    // 2026-11-25 二十次 用户要求配置窗口里配完直接发一条看效果, 不再要求返回运行页。
+    // 由 ControlWidget 在连接成功/断连时统一通知两个实例。
+    void SetRunEnabled(const bool bEnabled);
     // 是否有动作序列正在执行(运动段/间隔段/组合运动都算);
     // 退出确认等场景需要据此提示"下位机会继续跑完当前指令"
     bool IsMotionRunning(void) const;
+    // 料仓是否正在运动(空闲时料仓是"可开/不可停", 只有停止键可用才说明在动)
+    bool IsBinRunning(void) const;
+    // 把另一个面板的"运行类"按钮态抄过来: 发送/停止、料仓一对、光源四对。
+    // 用途: "配置数据"窗口打开时让配置面板跟运行页对齐(哪盏灯亮着、什么在跑),
+    // 关闭时再抄回去 —— 两个实例各自记自己的按钮态, 不同步就会出现
+    // "运行页上灯已经关了, 配置窗口还认为它亮着, 关闭键点不动"这种错位。
+    // 运动类型按钮不参与: 配置页要随时能点选切换编辑对象, 不受运行锁影响。
+    void SyncRunButtonStates(const ControlPanel *pSource);
     // 断连/重连时清理运动锁(下位机侧在飞指令随链路一起作废, 界面必须回到空闲态,
     // 否则运动类型按钮会一直停在禁用态, 重连后怎么点都没反应)
     void ResetMotionUiState(void);
@@ -64,8 +81,20 @@ private:
     ProtocolHandle *m_pProtocol;
     QString m_qstrCurrentSettingPath;
 
-    // 只读面板(模式数据面板): 其信号未连接通信引擎, 只能编辑/保存参数, 不允许下发指令
-    bool m_bReadOnly = false;
+    // 只读面板(模式数据面板)的"不能下发"状态由 m_bRunEnabled 表达, 这里不再留副本 ——
+    // 两份状态必然有一天对不上(断连时忘改一份, 就会出现"能点但发不出去")
+    bool m_bRunEnabled = true;
+
+    // ---- 光源状态灯(2026-11-25 十二次) ----
+    // 光源卡里 A/B/C/D 各配一盏灯: 灰(lamp_off)=灭, 绿(lamp_on)=亮。
+    // 灯只在运行页(bFlatRun)创建, 配置窗口那个实例的列表是空的,
+    // 所以下面两个接口内部必须判空 —— 配置窗口里切光源页不能因为没灯而崩。
+    // 下标 0~3 对应 A~D, 与协议里的索引 1~4 差 1(转换只在调用处做一次)。
+    QList<QLabel *> m_lstLightLamps;
+    QPixmap m_pmLampOff;
+    QPixmap m_pmLampOn;
+    void SetLightLamp(const int iIndex, const bool bOn);
+    void SetAllLightLampsOff(void);
 
     // ---- pbGather 交替序列 ----
     // 点击"发送"且当前选中 Gather 时, 不下发 Gather 自身参数,
@@ -96,6 +125,9 @@ private:
     void SetMotionTypeButtonsEnabled(const bool bEnabled);
     void LockMotionUi(void);                 // 下发后: 发送/停止互换 + G1/G2 与全部运动类型按钮置灰
     void RestoreIdleButtons(void);           // 唯一的统一恢复点(完成/超时/停止/兜底/断连 全走这里)
+    // 把"运动/料仓是否正在执行"同步给右下角状态灯(见 sigMotionRunningChanged)。
+    // 在锁定、恢复、料仓开/停这几处调用, 保证灯和按钮永远是同一个状态。
+    void NotifyRunState(void);
 
     // ---- 组合运动 G1 / G2 ----
     // G1Widget / G2Widget 里各嵌入一个 GroupMotion 表单(S1~S8: 动作类型 + 运行时间)。
@@ -153,6 +185,14 @@ signals:
     // 光源: 开启后 1s 内必须收到下位机完成反馈
     void sigLightOn(const QByteArray &qbtData, const QByteArray &qbtRespond);
     void sigLightOff(const QByteArray &qbtData, const QByteArray &qbtRespond);
+
+    // ---- 运行状态灯(右下角"状态"卡片) ----
+    // 运动(振动盘单条 / G1 / G2 / 交替序列)与料仓各自是否正在执行。
+    // 值由 NotifyRunState() 从按钮的实际使能态算出(与界面显示严格一致),
+    // 不另存一份标志位 —— 两份状态迟早会不一致。
+    // 只有运行页(bFlatRun)实例会被 ControlWidget 接走; 只读实例没人接也安全。
+    void sigMotionRunningChanged(const bool bRunning);
+    void sigBinRunningChanged(const bool bRunning);
 
     // 固件参数: 获取(0x15)无参数, 由引擎组帧; 保存(0x17)帧在这里组好再发
     // (49 字节数据域, 由 GeneralProtocol::SaveKeyParamsProtocol 生成)

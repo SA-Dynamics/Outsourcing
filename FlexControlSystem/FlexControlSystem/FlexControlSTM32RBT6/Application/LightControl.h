@@ -26,7 +26,7 @@ typedef struct
 {
 	uint8_t u8Index;			// 光源索引: 1=A光源, 2=B光源, 3=C光源, 4=D光源
 	uint8_t u8Brightness;		// 亮度 0~100
-	uint16_t u16KeepTime;		// 保持时间, 单位 100ms(协议中为秒数x10), 0 表示常亮
+	uint32_t u32KeepTime;		// 保持时间, 单位 100ms(协议中为秒数x10), 0 表示常亮; 4 字节/上限 9999s
 }LightParams;
 
 // weak, 回调由 FlexControl.c 实现

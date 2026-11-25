@@ -138,6 +138,7 @@ static void SendRecvParseInfoToBuffer(const SerialInfo *pInfo)
 
 
 // 解析运动指令
+// 数据域(2026-11-25): 索引1B + 电压2B + 频率2B + 时间4B + 角度偏移2B + 修正系数2B + 无限时间标志1B
 static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 {
 	pInfoWrite->u8MotionIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
@@ -146,17 +147,22 @@ static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
 	pInfoWrite->fMotionFrequency = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 6) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
-	pInfoWrite->fMotionTimeUse = (float)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 7) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
-								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 8) % UART_RECV_DATA_BUFFER_SIZE]) / 10.0f;
+
+	// 时间域 4 字节大端(2026-11-25 由 2 字节扩展, 上限 9999s -> 99990):
+	// 每字节先转 uint32_t 再移位, 否则 uint8 提升成 int 后左移 24 位会溢出符号位(UB)
+	pInfoWrite->fMotionTimeUse = (float)(((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 7) % UART_RECV_DATA_BUFFER_SIZE] << 24) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 8) % UART_RECV_DATA_BUFFER_SIZE] << 16) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 9) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 10) % UART_RECV_DATA_BUFFER_SIZE])) / 10.0f;
 	
-	pInfoWrite->s16AngleOffset = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 9) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
-								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 10) % UART_RECV_DATA_BUFFER_SIZE]);
-		
-	pInfoWrite->s8ModifyCoeff = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+	pInfoWrite->s16AngleOffset = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 11) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
 								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 12) % UART_RECV_DATA_BUFFER_SIZE]);
+		
+	pInfoWrite->s8ModifyCoeff = (int16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 13) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 14) % UART_RECV_DATA_BUFFER_SIZE]);
 
 	// 数据域末尾的"无限时间"标志(2026-11-22 扩展): 1=无限, 0=按时间。
-	// 振动盘(0x03)数据域 12 字节、料仓(0x07)8 字节, 两者都追加在最后,
+	// 振动盘(0x03)数据域 14 字节、料仓(0x07)10 字节, 两者都追加在最后,
 	// 所以按长度域定位而不是写死下标: 标志位置 = 命令字 + 1(长度字节) + 数据长度
 	{
 		const uint8_t u8DataLen = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 1) % UART_RECV_DATA_BUFFER_SIZE];
@@ -170,15 +176,18 @@ static void ParseMotionData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 
 
 
-// 解析光源开启指令: 索引1B + 亮度1B + 保持时间2B(单位100ms)
+// 解析光源开启指令(2026-11-25): 索引1B + 亮度1B + 保持时间4B(单位100ms) + 无限保持标志1B
 static void ParseLightData(SerialInfo *pInfoWrite, SerialDataType *pSerial)
 {
 	pInfoWrite->u8LightIndex = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 2) % UART_RECV_DATA_BUFFER_SIZE];
 
 	pInfoWrite->u8LightBrightness = pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 3) % UART_RECV_DATA_BUFFER_SIZE];
 
-	pInfoWrite->u16LightKeepTime = (uint16_t)((uint16_t)(pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE] << 8) |
-								pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE]);
+	// 保持时间 4 字节大端(上限 9999s -> 99990): 每字节先转 uint32_t 再移位
+	pInfoWrite->u32LightKeepTime = ((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 4) % UART_RECV_DATA_BUFFER_SIZE] << 24) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 5) % UART_RECV_DATA_BUFFER_SIZE] << 16) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 6) % UART_RECV_DATA_BUFFER_SIZE] << 8) | 
+								((uint32_t)pSerial->sRecv.u8RecvBuffer[(pSerial->sRecv.u16DataIndex + 7) % UART_RECV_DATA_BUFFER_SIZE]);
 
 	// 数据域末尾的"无限保持"标志(2026-11-22 扩展): 1=常亮, 0=按保持时间
 	{
@@ -288,6 +297,11 @@ void ParseUartData(SerialDataType *pSerial)
 		// 获取固件参数: 数据域 1 字节(固定 0x01), 应答 0x16 带 1 状态 + 48 字节 float
 		case 0x15:
 			sInfo.eInfo = INFO_GET_KEY_PARAMS;
+			break;
+
+		// 获取固件版本: 数据域 1 字节(固定 0x01), 应答 0x1A 带 3 字节(主/次/修订)
+		case 0x19:
+			sInfo.eInfo = INFO_GET_FW_VERSION;
 			break;
 
 		// 保存固件参数: 数据域固定 49 字节(标志 1 + 12 个 float), 长度不符直接丢弃,
@@ -743,6 +757,11 @@ void SendSerialRespond(const RespondType eType, void *pParams)
 			SaveRespondFrame(0x18, (const uint8_t *)pParams, 1);
 			break;
 
+		case RESPOND_GET_FW_VERSION:
+			// 获取固件版本反馈: 0x1A, 数据域 3 字节(主版本/次版本/修订)
+			SaveRespondFrame(0x1A, (const uint8_t *)pParams, 3);
+			break;
+
 		default:
 			break;
 	}
@@ -833,19 +852,22 @@ void SerialDataHandle(void)
 // 帧布局(不含帧头帧尾): pFrame[0]=cmd, [1]=len, [2..]=data, 校验已在
 // Network.c 提取帧时验过, 这里不再重复校验。
 
-// 解析网络运动指令: data = 索引1B + 电压2B + 频率2B + 时间2B + 角度偏移2B + 修正系数2B
+// 解析网络运动指令: data = 索引1B + 电压2B + 频率2B + 时间4B + 角度偏移2B + 修正系数2B
 static void ParseNetworkMotionData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
 {
 	pInfoWrite->u8MotionIndex = pFrame[2];
 
 	pInfoWrite->fMotionVoltage = (float)(((uint16_t)pFrame[3] << 8) | pFrame[4]) / 10.0f;
 	pInfoWrite->fMotionFrequency = (float)(((uint16_t)pFrame[5] << 8) | pFrame[6]) / 10.0f;
-	pInfoWrite->fMotionTimeUse = (float)(((uint16_t)pFrame[7] << 8) | pFrame[8]) / 10.0f;
 
-	pInfoWrite->s16AngleOffset = (int16_t)(((uint16_t)pFrame[9] << 8) | pFrame[10]);
+	// 时间域 4 字节大端(2026-11-25 由 2 字节扩展)
+	pInfoWrite->fMotionTimeUse = (float)(((uint32_t)pFrame[7] << 24) | ((uint32_t)pFrame[8] << 16) |
+								((uint32_t)pFrame[9] << 8) | (uint32_t)pFrame[10]) / 10.0f;
+
+	pInfoWrite->s16AngleOffset = (int16_t)(((uint16_t)pFrame[11] << 8) | pFrame[12]);
 
 	// 与串口解析一致: 2 字节大端, 取低字节语义(协议范围 -50~50)
-	pInfoWrite->s8ModifyCoeff = (int8_t)(int16_t)(((uint16_t)pFrame[11] << 8) | pFrame[12]);
+	pInfoWrite->s8ModifyCoeff = (int8_t)(int16_t)(((uint16_t)pFrame[13] << 8) | pFrame[14]);
 
 	// 数据域末尾的"无限时间"标志(2026-11-22 扩展), 位置 = 1 + 数据长度
 	if (pFrame[1] >= 1)
@@ -854,12 +876,13 @@ static void ParseNetworkMotionData(SerialInfo *pInfoWrite, const uint8_t *pFrame
 	}
 }
 
-// 解析网络光源开启指令: data = 索引1B + 亮度1B + 保持时间2B(单位100ms)
+// 解析网络光源开启指令(2026-11-25): data = 索引1B + 亮度1B + 保持时间4B(单位100ms) + 标志1B
 static void ParseNetworkLightData(SerialInfo *pInfoWrite, const uint8_t *pFrame)
 {
 	pInfoWrite->u8LightIndex = pFrame[2];
 	pInfoWrite->u8LightBrightness = pFrame[3];
-	pInfoWrite->u16LightKeepTime = (uint16_t)(((uint16_t)pFrame[4] << 8) | pFrame[5]);
+	pInfoWrite->u32LightKeepTime = ((uint32_t)pFrame[4] << 24) | ((uint32_t)pFrame[5] << 16) |
+								((uint32_t)pFrame[6] << 8) | (uint32_t)pFrame[7];
 
 	// 数据域末尾的"无限保持"标志(2026-11-22 扩展)
 	if (pFrame[1] >= 1)
@@ -946,6 +969,11 @@ void SerialHandleNetworkFrame(const uint8_t *pFrame, const uint8_t u8Len)
 		// 获取固件参数: 数据域 1 字节(固定 0x01), 应答 0x16 带 1 状态 + 48 字节 float
 		case 0x15:
 			sInfo.eInfo = INFO_GET_KEY_PARAMS;
+			break;
+
+		// 获取固件版本: 数据域 1 字节(固定 0x01), 应答 0x1A 带 3 字节(主/次/修订)
+		case 0x19:
+			sInfo.eInfo = INFO_GET_FW_VERSION;
 			break;
 
 		// 保存固件参数: 数据域固定 49 字节, 长度不符直接丢弃(与串口路径一致)

@@ -26,7 +26,8 @@ SOURCES += \
     main.cpp \
     controlwidget.cpp \
     rs485handle.cpp \
-    tcphandle.cpp
+    tcphandle.cpp \
+    titlebar.cpp
 
 HEADERS += \
     ConnectiveHandle.h \
@@ -37,12 +38,21 @@ HEADERS += \
     generalprotocol.h \
     groupmotion.h \
     rs485handle.h \
-    tcphandle.h
+    tcphandle.h \
+    titlebar.h
 
 FORMS += \
     controlpanel.ui \
     controlwidget.ui \
     groupmotion.ui
+
+# 全局视觉样式(主题「B 浅色卡片」), 唯一视觉出口, 见 style/app.qss 文件头说明
+RESOURCES += \
+    style/app.qrc
+
+# exe 图标(资源管理器/任务栏/Alt+Tab 看到的那张脸)。app.ico 由
+# build-check/make_logo.bat 从 image/logo.png 生成, 不要手改。
+RC_FILE = app.rc
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

@@ -61,6 +61,14 @@ namespace GeneralProtocolItems
     // 12 个 float 的裸字节数 = 48, 下发帧数据域 = 1 + 48 = 49
     constexpr int iKEY_PARAMS_DATA_LEN = 48;
 
+    // 获取固件版本(2026-11-25 二十二次, 协议第 10 节新增):
+    // 下发 1 字节 0x01, 应答 3 字节 = major / minor / patch。
+    // 上位机只在连接成功后读一次(固件是死的, 版本不会变), 不做周期轮询。
+    constexpr uint8_t u8SW_GET_FW_VERSION_CMD = 0x19;
+    constexpr uint8_t u8FW_GET_FW_VERSION_RESPOND = 0x1A;
+    // 应答数据域长度: 主/次/修订 各 1 字节
+    constexpr int iFW_VERSION_DATA_LEN = 3;
+
     // 光源索引
     constexpr uint8_t u8SW_LIGHT_INDEX_A = 0x01;
     constexpr uint8_t u8SW_LIGHT_INDEX_B = 0x02;
@@ -107,7 +115,7 @@ public:
     void BinMotionStopProtocol(QByteArray &qbtCmd, QByteArray &qbtRespond) override;
 
     void LightOnProtocol(const uint8_t u8Index, const uint8_t u8Brightness,
-                         const uint16_t u16KeepTime, const bool bInfiniteKeep,
+                         const uint32_t u32KeepTime, const bool bInfiniteKeep,
                          QByteArray &qbtSendCmd, QByteArray &qbtRespond) override;
 
     void LightOffProtocol(const uint8_t u8Index, QByteArray &qbtCmd, QByteArray &qbtRespond) override;
@@ -127,6 +135,10 @@ public:
     // 同样由引擎按命令码 0x16 / 0x18 单独匹配
     void GetKeyParamsProtocol(QByteArray &qbtCmd) override;
     void SaveKeyParamsProtocol(const GeneralKeyParams::KeyParams &sParams, QByteArray &qbtCmd) override;
+
+    // 获取固件版本: 应答 3 字节随固件变化, 无法预构造期望帧,
+    // 由引擎按命令码 0x1A 单独匹配(与获取电压/获取固件参数同构)
+    void GetFirmwareVersionProtocol(QByteArray &qbtCmd) override;
 
     // 12 个 float <-> 48 字节大端裸数据(协议 0x16/0x17 的数据域主体)。
     // 单独抽出来: 引擎解析应答和界面填 spinbox 都复用这一对函数,

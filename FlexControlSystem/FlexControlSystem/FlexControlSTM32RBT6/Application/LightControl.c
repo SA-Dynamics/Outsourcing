@@ -40,7 +40,7 @@ typedef struct
 {
 	bool bOn;					// 该路是否点亮中
 	uint8_t u8Brightness;		// 当前亮度 0~100
-	uint16_t u16KeepTime;		// 保持时间, 单位 100ms, 0 表示常亮
+	uint32_t u32KeepTime;		// 保持时间, 单位 100ms, 0 表示常亮(4 字节, 上限 9999s)
 	uint32_t u32TimerCount;		// 保持时间计时起点
 }LightChannelState;
 
@@ -175,12 +175,12 @@ static void LightSetDuty(const uint8_t u8Slot, const uint8_t u8Brightness)
 
 
 // 点亮某一路: 设置亮度, 并从此刻开始独立计时
-static void LightTurnOn(const uint8_t u8Slot, const uint8_t u8Brightness, const uint16_t u16KeepTime)
+static void LightTurnOn(const uint8_t u8Slot, const uint8_t u8Brightness, const uint32_t u32KeepTime)
 {
 	LightChannelState *pChannel = &g_asLightChannel[u8Slot];
 
 	pChannel->u8Brightness = (u8Brightness > LIGHT_BRIGHTNESS_MAX) ? LIGHT_BRIGHTNESS_MAX : u8Brightness;
-	pChannel->u16KeepTime = u16KeepTime;
+	pChannel->u32KeepTime = u32KeepTime;
 	pChannel->bOn = true;
 
 	LightSetDuty(u8Slot, pChannel->u8Brightness);
@@ -219,7 +219,7 @@ void LightControlInit(void)
 	{
 		g_asLightChannel[u8Slot].bOn = false;
 		g_asLightChannel[u8Slot].u8Brightness = 0;
-		g_asLightChannel[u8Slot].u16KeepTime = 0;
+		g_asLightChannel[u8Slot].u32KeepTime = 0;
 		g_asLightChannel[u8Slot].u32TimerCount = 0;
 
 		// 四路都从"熄灭"开始(CCR=0)
@@ -306,13 +306,13 @@ static void LightUpdateKeepTime(void)
 		}
 
 		// 保持时间单位 100ms; 0 表示常亮, 不自动熄灭
-		if (pChannel->u16KeepTime == 0)
+		if (pChannel->u32KeepTime == 0)
 		{
 			continue;
 		}
 
 		if (GetTimerTickDelta(pChannel->u32TimerCount, GetCurTimerCount()) >=
-			(uint32_t)pChannel->u16KeepTime * 100)
+			pChannel->u32KeepTime * 100u)
 		{
 			LightTurnOff(u8Slot);
 
@@ -333,7 +333,7 @@ void LightControl(void)
 
 		if (s8Slot >= 0)
 		{
-			LightTurnOn((uint8_t)s8Slot, sParams.u8Brightness, sParams.u16KeepTime);
+			LightTurnOn((uint8_t)s8Slot, sParams.u8Brightness, sParams.u32KeepTime);
 		}
 		// 索引非法时不动硬件, 但仍反馈, 避免上位机 1s 超时
 
