@@ -492,13 +492,22 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
     m_pMotionSeqWatchdog = new QTimer(this);
     m_pMotionSeqWatchdog->setSingleShot(true);
     connect(m_pMotionSeqWatchdog, &QTimer::timeout, this, [this]() {
-        if (m_u32MotionSeqRemaining > 0)
+        if (m_pSequence->u32Remaining > 0)
         {
             qWarning() << "motion sequence watchdog timeout, force reset";
             ResetMotionSequence();
-            RestoreIdleButtons();
+            RestoreIdleButtonsBoth();
         }
     });
+
+    // 光源 A~D 的"到点自动恢复": 每路一个单次定时器, 互不影响(四路时间可以不同)
+    for (int i32Light = 0; i32Light < 4; ++i32Light)
+    {
+        m_apLightRecoverTimers[i32Light] = new QTimer(this);
+        m_apLightRecoverTimers[i32Light]->setSingleShot(true);
+        connect(m_apLightRecoverTimers[i32Light], &QTimer::timeout, this,
+                [this, i32Light]() { RecoverLightChannel(i32Light); });
+    }
 
     connect(this, &ControlPanel::sigMotionTerminate, this, [this]() {
         // 未连接(不允许下发)的面板: 按钮本来就该一直灰着, 不能被完成帧"恢复"成可点
@@ -507,13 +516,43 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
             return;
         }
 
+        // 序列在对面面板手上: 这次完成帧由它处理(递减/续队/收尾), 它收尾时会把
+        // 两个面板一起恢复。这里必须直接返回 —— 否则同一次完成帧会被两边各减一次,
+        // 计数提前归零, 电机还在跑的时候按钮就解锁了。
+        if (m_pSequence->pOwner != nullptr && m_pSequence->pOwner != this)
+        {
+            return;
+        }
+
         // pbGather 交替序列: 每条命令(运动段或间隔段)完成触发一次本信号,
         // 中间的命令不恢复按钮, 最后一条才恢复
-        if (m_u32MotionSeqRemaining > 0)
+        if (m_pSequence->u32Remaining > 0)
         {
-            m_u32MotionSeqRemaining--;
+            m_pSequence->u32Remaining--;
 
-            if (m_u32MotionSeqRemaining > 0)
+            // 「保持」: 队列见底(只剩 1 条在跑)就把同一个 H+V 周期再排一遍,
+            // 计数因此永不归零 → 界面一直停在运动中(停止键全程可用), 直到
+            // 用户点"结束运动"/断连/看门狗超时。续排放在这里而不是等归零:
+            // 队列里始终有后续命令, 引擎下一个 tick 就能接上, 不会多出一次空档。
+            if (m_pSequence->bRepeat && m_pSequence->u32Remaining < 2)
+            {
+                const quint32 u32Added = QueueGatherRound();
+
+                if (u32Added > 0)
+                {
+                    // 续排的命令同样要计入"未完成数", 否则下一帧就会误判成"队列已空"
+                    // 再续一轮 —— 计数与真实队列脱节, 按钮也会提前解锁。
+                    m_pSequence->u32Remaining += u32Added;
+                    StartMotionSeqWatchdog(m_pSequence->iRoundMs, u32Added);
+                    return;
+                }
+
+                // 按钮参数丢了(理论上不会发生): 退出保持, 按下方的正常收尾恢复界面
+                qWarning() << "gather keep: cannot queue next round, stop repeating";
+                m_pSequence->bRepeat = false;
+            }
+
+            if (m_pSequence->u32Remaining > 0)
             {
                 return;
             }
@@ -521,8 +560,9 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
             ResetMotionSequence();   // 计数归零, 序列正常结束, 落入下方统一恢复
         }
 
-        // 统一恢复: 振动盘(含全部运动类型按钮) / 料仓 / 光源 / 组合运动按钮回到空闲态
-        RestoreIdleButtons();
+        // 统一恢复: 振动盘(含全部运动类型按钮) / 料仓 / 光源 / 组合运动按钮回到空闲态,
+        // 两个面板一起 —— 序列计数是共享的, 按钮态也必须同步
+        RestoreIdleButtonsBoth();
     });
 
     ui->pbSendMotionStop->setEnabled(false);
@@ -567,7 +607,7 @@ ControlPanel::~ControlPanel()
 bool ControlPanel::IsMotionRunning(void) const
 {
     return m_bMotionUiLocked ||
-           (m_u32MotionSeqRemaining > 0) ||
+           (m_pSequence->u32Remaining > 0) ||
            ui->pbSendMotionStop->isEnabled() ||
            ui->pbBinStopMotion->isEnabled();
 }
@@ -623,6 +663,7 @@ void ControlPanel::SetRunEnabled(const bool bEnabled)
     }
 
     // 光源状态灯跟着回灰(运行页才有灯, 配置面板的列表是空的, SetLightLamp 内部判空)
+    StopAllLightRecover();
     SetAllLightLampsOff();
     NotifyRunState();
 }
@@ -658,11 +699,28 @@ void ControlPanel::SyncRunButtonStates(const ControlPanel *pSource)
         sPair.first->setEnabled(m_bRunEnabled && sPair.second->isEnabled());
     }
 
-    // 序列计数/看门狗属于各自实例, 抄按钮态时不能把对方的计数搬过来
-    m_u32MotionSeqRemaining = 0;
-    if (m_pMotionSeqWatchdog != nullptr)
+    // 序列状态不在这里碰: 二十五次起两个面板共享同一份(MotionSequenceState),
+    // 抄按钮态时去清它等于把对方正在跑的序列掐掉 —— 而序列的收尾本来就由
+    // owner 面板负责, 收尾时会用 RestoreIdleButtonsBoth 把两边一起恢复。
+    // (单面板使用即未共享时, 这份状态就是自己的, 也不该在抄态时被清)
+
+    // 光源"时间模式"的到点恢复跟着接力。只抄按钮态的话, 在"配置数据"窗口里
+    // 点开灯、还没到点就关窗, 运行页会卡成"只能点关闭" —— 正是本轮要消灭的误导。
+    // 源面板哪一路还在倒计时就把剩余时间接过来; 保持 / 时间 0(常亮) 那几路
+    // 没有倒计时(返回 0), 本面板也保持"只能手动关"。
+    QPushButton *arrCloseLights[4] = {ui->pbCloseLightA, ui->pbCloseLihgtB,
+                                      ui->pbCloseLightC, ui->pbCloseLightD};
+    for (int i32Light = 0; i32Light < 4; ++i32Light)
     {
-        m_pMotionSeqWatchdog->stop();
+        const int iRemainMs = pSource->LightRecoverRemainMs(i32Light);
+        if (iRemainMs > 0 && arrCloseLights[i32Light]->isEnabled())
+        {
+            StartLightRecoverMs(i32Light, iRemainMs);
+        }
+        else
+        {
+            StopLightRecover(i32Light);
+        }
     }
 }
 
@@ -746,10 +804,26 @@ void ControlPanel::RestoreIdleButtons(void)
     ui->pbOpenLightD->setEnabled(true);
     ui->pbCloseLightD->setEnabled(false);
     // 光源按钮回到"可开、不可关"就等于四路都灭了, 状态灯必须跟着回灰
+    StopAllLightRecover();
     SetAllLightLampsOff();
 
     // 状态灯: 这是唯一的空闲恢复点, 运动/料仓两盏灯都在这里回灰
     NotifyRunState();
+}
+
+
+// 序列收尾: 两个面板一起回空闲。
+// 非 owner 面板收到完成帧时是直接返回的(见 sigMotionTerminate 的处理), 它自己
+// 永远走不到这里; 若不带着它一起恢复, 它会一直停在"运动中"(发送灰、停止可用),
+// 用户切回主界面就点不动了 —— 聚拢"保持"下尤其明显。
+void ControlPanel::RestoreIdleButtonsBoth(void)
+{
+    RestoreIdleButtons();
+
+    if (m_pPeerPanel != nullptr && m_pPeerPanel != this)
+    {
+        m_pPeerPanel->RestoreIdleButtons();
+    }
 }
 
 
@@ -765,7 +839,7 @@ void ControlPanel::NotifyRunState(void)
     // 算出来就是"两盏灯都灰", 正是需要发出去的那一帧状态。
     // 早退会让断连后灯停在绿色("灯还绿着, 但按钮已经点不动了")。
     const bool bMotionRunning = m_bMotionUiLocked ||
-                                (m_u32MotionSeqRemaining > 0) ||
+                                (m_pSequence->u32Remaining > 0) ||
                                 ui->pbSendMotionStop->isEnabled();
     emit sigMotionRunningChanged(bMotionRunning);
     emit sigBinRunningChanged(ui->pbBinStopMotion->isEnabled());
@@ -1311,6 +1385,13 @@ void ControlPanel::SendButtonMotion(const ButtonParams &Button, const float fTim
 // 每段时长取 ui->dspHMotionTime / dspVMotionTime(两者可不同), 段间静止间隔取 ui->dspIntervalTime
 // (间隔 0 表示无缝衔接); 段数累计到 Gather 按钮自身 timeuse 为止(至少 1 段)。
 // 所有段一次性入队, 引擎逐段下发(每段等下位机完成回帧后才发下一段)。
+//
+// 「保持」(2026-11-25 二十五次): 勾了保持就完全不看 timeuse —— 只排一个 H+V 周期,
+// 之后每次队列见底(见构造函数里的 sigMotionTerminate)再排一个周期, 一直交替到
+// 用户点"结束运动"为止。
+// 为什么不干脆把每段发成"无限时间动作": 序列是靠下位机"时间到"的完成帧推进的,
+// 某段一旦变成无限动作就永远不会有完成帧, 序列会卡死在第一段(见 SendButtonMotion 注释)。
+// 所以"保持"在聚拢这里改由上位机续排实现, 段本身仍按时间走。
 void ControlPanel::StartGatherSequence(void)
 {
     const ButtonParams *pGather = nullptr;
@@ -1344,70 +1425,164 @@ void ControlPanel::StartGatherSequence(void)
         return;
     }
 
-    // 总执行时间取 pbGather 按钮自己的 timeuse
-    const int iTotalMs = qRound(pGather->qlstMotionParams.first().value("timeuse").toFloat() * 1000.0f);
-
     // 交替序列的三个时间参数取自模式数据面板(单位: 秒 -> 毫秒)
-    // 段时长下限 10ms, 防止 0 值生成大量空指令; 间隔为 0 表示段间不停
-    const int iSegHMs = qMax(10, qRound(ui->dspHMotionTime->value() * 1000.0f));
-    const int iSegVMs = qMax(10, qRound(ui->dspVMotionTime->value() * 1000.0f));
-    const int iGapMs  = qMax(0,  qRound(ui->dspIntervalTime->value() * 1000.0f));
+    // 段时长下限 10ms, 防止 0 值生成大量空指令; 间隔为 0 表示段间不停。
+    // 启动时快照成成员: "保持"续排必须沿用同一份节奏, 否则用户跑到一半改界面,
+    // 下一轮就换节奏了(正在跑的这一轮却没变), 现场很难解释。
+    m_pSequence->iSegHMs = qMax(10, qRound(ui->dspHMotionTime->value() * 1000.0f));
+    m_pSequence->iSegVMs = qMax(10, qRound(ui->dspVMotionTime->value() * 1000.0f));
+    m_pSequence->iGapMs  = qMax(0,  qRound(ui->dspIntervalTime->value() * 1000.0f));
 
-    // 先排段: 从水平居中开始 H / V / H / V 交替, 逐段累计运动时长,
-    // 累计刚达到/超过总时长就停止(至少 1 段) —— H/V 段时长可以不同, 不能再用整除算段数
-    struct SeqSeg
-    {
-        const ButtonParams *pButton;
-        int iMs;
-    };
-    QVector<SeqSeg> lstSegs;
-    int iMotionMs = 0;
-    for (int i = 0; i < 1000; i++)     // 1000 段上限, 防参数异常导致死循环
-    {
-        const bool bIsH = (i % 2 == 0);
-        lstSegs.append({ bIsH ? pHCentered : pVCentered, bIsH ? iSegHMs : iSegVMs });
-        iMotionMs += lstSegs.last().iMs;
+    // Gather 按钮自己的 "keep" = 用户勾了「保持」: 一直交替, 不按时间收尾
+    m_pSequence->bRepeat = (pGather->qlstMotionParams.first().value("keep", 0).toInt() != 0);
 
-        if (iMotionMs >= iTotalMs)
-        {
-            break;
-        }
-    }
+    m_pSequence->u32Remaining = 0;
+    // 本面板是这条序列的 owner: 完成帧由它递减/续队(对面面板只负责显示)
+    m_pSequence->pOwner = this;
+    m_pSequence->u32RoundCmds = 0;
+    m_pSequence->iRoundMs = 0;
 
-    // 逐段入队: H [间隔] V [间隔] H ...
-    // 间隔段 = 一条 0V 的运动指令: 下位机占空比为 0, 音圈电机断电静止,
-    // 按间隔时长计时后照常回完成帧 —— 引擎节拍与应答匹配逻辑不变, 间隔由下位机保证
-    // (间隔为 0 时不插间隔段, 段与段无缝衔接)
-    m_u32MotionSeqRemaining = 0;
     int iWallMs = 0;
-    for (int i = 0; i < lstSegs.size(); i++)
-    {
-        const SeqSeg &Seg = lstSegs[i];
-        SendButtonMotion(*Seg.pButton, Seg.iMs / 1000.0f);
-        m_u32MotionSeqRemaining++;
-        iWallMs += Seg.iMs;
 
-        if (i + 1 < lstSegs.size() && iGapMs > 0)
+    if (m_pSequence->bRepeat)
+    {
+        // 保持: 一轮 = 一个完整的 H/V 交替周期。timeuse 不参与 —— 它表示"总共动多久",
+        // 而勾了保持的语义正是"不设结束时间", 两个语义冲突时以保持为准。
+        m_pSequence->u32Remaining = QueueGatherRound();
+        m_pSequence->u32RoundCmds = m_pSequence->u32Remaining;
+        m_pSequence->iRoundMs = m_pSequence->iSegHMs + m_pSequence->iSegVMs + 2 * m_pSequence->iGapMs;
+        iWallMs = m_pSequence->iRoundMs;
+
+        qDebug() << "gather sequence (keep): repeat H" << m_pSequence->iSegHMs << "ms / V"
+                 << m_pSequence->iSegVMs << "ms, gap" << m_pSequence->iGapMs << "ms,"
+                 << m_pSequence->u32Remaining << "cmds per round, until user stops";
+    }
+    else
+    {
+        // 总执行时间取 pbGather 按钮自己的 timeuse
+        const int iTotalMs = qRound(pGather->qlstMotionParams.first().value("timeuse").toFloat() * 1000.0f);
+
+        // 先排段: 从水平居中开始 H / V / H / V 交替, 逐段累计运动时长,
+        // 累计刚达到/超过总时长就停止(至少 1 段) —— H/V 段时长可以不同, 不能再用整除算段数
+        struct SeqSeg
         {
-            SendButtonMotion(*Seg.pButton, iGapMs / 1000.0f, 0.0f);
-            m_u32MotionSeqRemaining++;
-            iWallMs += iGapMs;
+            const ButtonParams *pButton;
+            int iMs;
+        };
+        QVector<SeqSeg> lstSegs;
+        int iMotionMs = 0;
+        for (int i = 0; i < 1000; i++)     // 1000 段上限, 防参数异常导致死循环
+        {
+            const bool bIsH = (i % 2 == 0);
+            lstSegs.append({ bIsH ? pHCentered : pVCentered, bIsH ? m_pSequence->iSegHMs : m_pSequence->iSegVMs });
+            iMotionMs += lstSegs.last().iMs;
+
+            if (iMotionMs >= iTotalMs)
+            {
+                break;
+            }
         }
+
+        // 逐段入队: H [间隔] V [间隔] H ...
+        // 间隔段 = 一条 0V 的运动指令: 下位机占空比为 0, 音圈电机断电静止,
+        // 按间隔时长计时后照常回完成帧 —— 引擎节拍与应答匹配逻辑不变, 间隔由下位机保证
+        // (间隔为 0 时不插间隔段, 段与段无缝衔接)
+        for (int i = 0; i < lstSegs.size(); i++)
+        {
+            const SeqSeg &Seg = lstSegs[i];
+            SendButtonMotion(*Seg.pButton, Seg.iMs / 1000.0f);
+            m_pSequence->u32Remaining++;
+            iWallMs += Seg.iMs;
+
+            if (i + 1 < lstSegs.size() && m_pSequence->iGapMs > 0)
+            {
+                SendButtonMotion(*Seg.pButton, m_pSequence->iGapMs / 1000.0f, 0.0f);
+                m_pSequence->u32Remaining++;
+                iWallMs += m_pSequence->iGapMs;
+            }
+        }
+
+        qDebug() << "gather sequence:" << lstSegs.size() << "motions,"
+                 << (m_pSequence->iGapMs > 0 ? lstSegs.size() - 1 : 0) << "gaps,"
+                 << iMotionMs << "ms motion," << iWallMs << "ms wall, expect" << iTotalMs << "ms"
+                 << "(H" << m_pSequence->iSegHMs << "ms V" << m_pSequence->iSegVMs << "ms gap" << m_pSequence->iGapMs << "ms)";
     }
 
-    qDebug() << "gather sequence:" << lstSegs.size() << "motions,"
-             << (iGapMs > 0 ? lstSegs.size() - 1 : 0) << "gaps,"
-             << iMotionMs << "ms motion," << iWallMs << "ms wall, expect" << iTotalMs << "ms"
-             << "(H" << iSegHMs << "ms V" << iSegVMs << "ms gap" << iGapMs << "ms)";
+    if (m_pSequence->u32Remaining == 0)
+    {
+        qWarning() << "gather sequence: nothing queued";
+        m_pSequence->bRepeat = false;
+        return;
+    }
 
     // 序列运行期间锁住 G1/G2, 防止两种序列互相清计数(完成/停止时统一恢复)
     ui->pbG1->setEnabled(false);
     ui->pbG2->setEnabled(false);
 
-    // 兜底: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量
+    StartMotionSeqWatchdog(iWallMs, m_pSequence->u32Remaining);
+}
+
+
+// 按启动时的快照再排一轮 H [间隔] V [间隔](保持模式专用)。
+// 返回实际入队的命令数; 0 = 按钮参数丢了, 调用方应退出保持。
+quint32 ControlPanel::QueueGatherRound(void)
+{
+    if (!m_bRunEnabled)
+    {
+        return 0;
+    }
+
+    const ButtonParams *pHCentered = nullptr;
+    const ButtonParams *pVCentered = nullptr;
+
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (Button.qstrName == "MotionHCentered")
+        {
+            pHCentered = &Button;
+        }
+        else if (Button.qstrName == "MotionVCentered")
+        {
+            pVCentered = &Button;
+        }
+    }
+
+    if (pHCentered == nullptr || pVCentered == nullptr
+        || pHCentered->qlstMotionParams.isEmpty() || pVCentered->qlstMotionParams.isEmpty())
+    {
+        return 0;
+    }
+
+    quint32 u32Count = 0;
+
+    SendButtonMotion(*pHCentered, m_pSequence->iSegHMs / 1000.0f);
+    u32Count++;
+    if (m_pSequence->iGapMs > 0)
+    {
+        SendButtonMotion(*pHCentered, m_pSequence->iGapMs / 1000.0f, 0.0f);
+        u32Count++;
+    }
+
+    SendButtonMotion(*pVCentered, m_pSequence->iSegVMs / 1000.0f);
+    u32Count++;
+    if (m_pSequence->iGapMs > 0)
+    {
+        SendButtonMotion(*pVCentered, m_pSequence->iGapMs / 1000.0f, 0.0f);
+        u32Count++;
+    }
+
+    return u32Count;
+}
+
+
+// 序列兜底计时: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量。
+// 保持模式每续一轮都重启一次(按一轮的墙钟算), 所以只有"某一轮中途彻底没响应"
+// 才会触发 —— 正常情况下这个看门狗永远等不到超时。
+void ControlPanel::StartMotionSeqWatchdog(const int iWallMs, const quint32 u32Cmds)
+{
     if (m_pMotionSeqWatchdog)
     {
-        m_pMotionSeqWatchdog->start(iWallMs + static_cast<int>(m_u32MotionSeqRemaining) * 2200 + 1000);
+        m_pMotionSeqWatchdog->start(iWallMs + static_cast<int>(u32Cmds) * 2200 + 1000);
     }
 }
 
@@ -1415,12 +1590,33 @@ void ControlPanel::StartGatherSequence(void)
 // 复位序列状态(不清通信队列; 需要停运动由停止指令负责)
 void ControlPanel::ResetMotionSequence(void)
 {
-    m_u32MotionSeqRemaining = 0;
+    m_pSequence->u32Remaining = 0;
+
+    // 保持标志必须一起清: 只剩计数归零的话, 下一次(甚至迟到的)完成帧会让
+    // 序列"自己活过来" —— 用户已经点了结束运动, 电机却又动起来。
+    m_pSequence->bRepeat = false;
+    m_pSequence->u32RoundCmds = 0;
+
+    // 序列没了 owner: 之后到来的收尾完成帧(停止/超时那一次)谁都可以处理
+    m_pSequence->pOwner = nullptr;
 
     if (m_pMotionSeqWatchdog)
     {
         m_pMotionSeqWatchdog->stop();
     }
+}
+
+
+// 两个面板共享同一份运动序列状态(ControlWidget 构造时调用一次)
+void ControlPanel::UseSharedSequence(MotionSequenceState *pState, ControlPanel *pPeerPanel)
+{
+    if (pState == nullptr)
+    {
+        return;
+    }
+
+    m_pSequence = pState;
+    m_pPeerPanel = pPeerPanel;
 }
 
 
@@ -1470,7 +1666,7 @@ void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QSt
     }
 
     // 已有序列在跑(按钮此时应已禁用, 这里兜底): 不能中途重置计数, 否则按钮会提前恢复
-    if (m_u32MotionSeqRemaining > 0 || m_bMotionUiLocked)
+    if (m_pSequence->u32Remaining > 0 || m_bMotionUiLocked)
     {
         qWarning() << qstrGroupName << "sequence ignored: another sequence is running";
         return;
@@ -1510,18 +1706,15 @@ void ControlPanel::StartGroupMotionSequence(GroupMotion *pGroupMotion, const QSt
         return;
     }
 
-    m_u32MotionSeqRemaining = u32Count;
+    m_pSequence->u32Remaining = u32Count;
+    m_pSequence->pOwner = this;      // 组合运动同样: 只有发起者处理完成帧
 
     qDebug() << qstrGroupName << "sequence:" << u32Count << "steps," << iWallMs << "ms";
 
     // 序列期间锁界面: 发送/停止互换 + G1/G2 与全部运动类型按钮置灰
     LockMotionUi();
 
-    // 兜底: 每条命令最坏 = 命令时长 + 引擎 2s 响应超时冗余, 再加 1s 余量
-    if (m_pMotionSeqWatchdog)
-    {
-        m_pMotionSeqWatchdog->start(iWallMs + static_cast<int>(u32Count) * 2200 + 1000);
-    }
+    StartMotionSeqWatchdog(iWallMs, u32Count);
 }
 
 
@@ -1957,6 +2150,7 @@ void ControlPanel::on_pbOpenLightA_clicked()
     ui->pbOpenLightA->setEnabled(false);
     ui->pbCloseLightA->setEnabled(true);
     SetLightLamp(0, true);
+    StartLightRecover(0, ui->spLightATime->value(), ui->cbLightAKeep->isChecked());
 }
 
 void ControlPanel::on_pbCloseLightA_clicked()
@@ -1976,6 +2170,9 @@ void ControlPanel::on_pbCloseLightA_clicked()
     ui->pbOpenLightA->setEnabled(true);
     ui->pbCloseLightA->setEnabled(false);
     SetLightLamp(0, false);
+
+    // 手动关: 该路不会再有"到点", 表必须停, 否则过一会儿会把按钮再刷一遍
+    StopLightRecover(0);
 }
 
 void ControlPanel::on_pbOpenLightB_clicked()
@@ -1999,6 +2196,7 @@ void ControlPanel::on_pbOpenLightB_clicked()
     ui->pbOpenLightB->setEnabled(false);
     ui->pbCloseLihgtB->setEnabled(true);
     SetLightLamp(1, true);
+    StartLightRecover(1, ui->spLightBTime->value(), ui->cbLightBKeep->isChecked());
 }
 
 void ControlPanel::on_pbCloseLihgtB_clicked()
@@ -2018,6 +2216,7 @@ void ControlPanel::on_pbCloseLihgtB_clicked()
     ui->pbOpenLightB->setEnabled(true);
     ui->pbCloseLihgtB->setEnabled(false);
     SetLightLamp(1, false);
+    StopLightRecover(1);
 }
 
 void ControlPanel::on_pbOpenLightC_clicked()
@@ -2040,6 +2239,7 @@ void ControlPanel::on_pbOpenLightC_clicked()
     ui->pbOpenLightC->setEnabled(false);
     ui->pbCloseLightC->setEnabled(true);
     SetLightLamp(2, true);
+    StartLightRecover(2, ui->spLightCTime->value(), ui->cbLightCKeep->isChecked());
 }
 
 void ControlPanel::on_pbCloseLightC_clicked()
@@ -2058,6 +2258,7 @@ void ControlPanel::on_pbCloseLightC_clicked()
     ui->pbOpenLightC->setEnabled(true);
     ui->pbCloseLightC->setEnabled(false);
     SetLightLamp(2, false);
+    StopLightRecover(2);
 }
 
 void ControlPanel::on_pbOpenLightD_clicked()
@@ -2080,6 +2281,7 @@ void ControlPanel::on_pbOpenLightD_clicked()
     ui->pbOpenLightD->setEnabled(false);
     ui->pbCloseLightD->setEnabled(true);
     SetLightLamp(3, true);
+    StartLightRecover(3, ui->spLightDTime->value(), ui->cbLightDKeep->isChecked());
 }
 
 void ControlPanel::on_pbCloseLightD_clicked()
@@ -2098,6 +2300,7 @@ void ControlPanel::on_pbCloseLightD_clicked()
     ui->pbOpenLightD->setEnabled(true);
     ui->pbCloseLightD->setEnabled(false);
     SetLightLamp(3, false);
+    StopLightRecover(3);
 }
 
 // 光源保持时间到: 下位机自发 0x0E 完成帧(带索引), 恢复对应路光源按钮。
@@ -2171,5 +2374,108 @@ void ControlPanel::OnLightOffFinish(const uint8_t &u8Index)
         sChannel.pOpen->setEnabled(true);
         sChannel.pClose->setEnabled(false);
         SetLightLamp(sChannel.iLamp, false);
+        // 下位机已经回了"到点熄灭", 本地表不必再走一遍(幂等, 但早停能少一次刷新)
+        StopLightRecover(sChannel.iLamp);
     }
+}
+
+
+// ============================ 光源时间模式的本地恢复 ============================
+// 背景: 时间模式(没勾「保持」)下, 下位机到点自己灭灯, 但现场固件不保证回 0x0E
+// 完成帧(固件里 CbLightOffFinish 还是拿 NULL 发的, 连索引都没带)。只靠完成帧
+// 恢复的话, "打开"键会一直灰着, 用户只能去点一次"关闭"才知道可以再开 —— 而那时
+// 灯其实早就灭了。这里按用户界面上填的秒数在本地起表, 到点直接放开"打开"键。
+
+void ControlPanel::StartLightRecover(const int iIndex, const int iSeconds, const bool bKeep)
+{
+    if (iIndex < 0 || iIndex >= 4 || m_apLightRecoverTimers[iIndex] == nullptr)
+    {
+        return;
+    }
+
+    // 同一路重新开灯: 先掐掉上一轮的表(可能上次还没到点就手动关掉又开了一次)
+    m_apLightRecoverTimers[iIndex]->stop();
+
+    // 两种"下位机不会自动灭灯"的情况, 一律不启动本地表:
+    //   · 勾了「保持」            —— 常亮, 只能手动关;
+    //   · 没勾但时间 = 0          —— 协议里"保持时间 0 = 常亮"(见固件 LightOnHandler
+    //                                把 u32KeepTime 直接交给 LightControl), 0 秒不是立刻灭。
+    // 这两种情况若也自动恢复, "打开"键会变可点而灯还亮着, 比现在更误导。
+    if (bKeep || iSeconds <= 0)
+    {
+        return;
+    }
+
+    // +150ms 余量: 下位机从"收到帧"开始计时, 上位机从"下发"开始算, 起点差几十毫秒。
+    // 不留余量时按钮会比灯早一点点变可点, 手快连点会发出"灯还亮着又开一次"的指令。
+    m_apLightRecoverTimers[iIndex]->start(iSeconds * 1000 + 150);
+}
+
+void ControlPanel::StopLightRecover(const int iIndex)
+{
+    if (iIndex >= 0 && iIndex < 4 && m_apLightRecoverTimers[iIndex] != nullptr)
+    {
+        m_apLightRecoverTimers[iIndex]->stop();
+    }
+}
+
+// 给另一个面板交接剩余时间用(见 SyncRunButtonStates)。0 = 没有倒计时。
+int ControlPanel::LightRecoverRemainMs(const int iIndex) const
+{
+    if (iIndex < 0 || iIndex >= 4 || m_apLightRecoverTimers[iIndex] == nullptr)
+    {
+        return 0;
+    }
+
+    QTimer *pTimer = m_apLightRecoverTimers[iIndex];
+    return pTimer->isActive() ? pTimer->remainingTime() : 0;
+}
+
+// 按"剩余毫秒"起表(不再加 150ms 余量: 这个值本来就是从另一块表上量下来的)
+void ControlPanel::StartLightRecoverMs(const int iIndex, const int iMs)
+{
+    if (iIndex < 0 || iIndex >= 4 || m_apLightRecoverTimers[iIndex] == nullptr)
+    {
+        return;
+    }
+
+    m_apLightRecoverTimers[iIndex]->stop();
+    if (iMs > 0)
+    {
+        m_apLightRecoverTimers[iIndex]->start(iMs);
+    }
+}
+
+void ControlPanel::StopAllLightRecover(void)
+{
+    for (int i32Light = 0; i32Light < 4; ++i32Light)
+    {
+        StopLightRecover(i32Light);
+    }
+}
+
+// 本地计时到点: 把该路恢复成"可开 / 不可关"并让状态灯回灰。
+// 与 OnLightOffFinish 落到同一组操作, 两个入口(本地到点 / 下位机 0x0E)谁先到都一样。
+void ControlPanel::RecoverLightChannel(const int iIndex)
+{
+    if (iIndex < 0 || iIndex >= 4)
+    {
+        return;
+    }
+
+    // 断连后按钮已被 SetRunEnabled(false) 全部禁用, 这里不能再把它点亮。
+    // (定时器那时已经停了, 但队列里可能还压着一个已排上的 timeout 事件)
+    if (!m_bRunEnabled)
+    {
+        return;
+    }
+
+    QPushButton *arrOpen[4] = {ui->pbOpenLightA, ui->pbOpenLightB,
+                               ui->pbOpenLightC, ui->pbOpenLightD};
+    QPushButton *arrClose[4] = {ui->pbCloseLightA, ui->pbCloseLihgtB,
+                                ui->pbCloseLightC, ui->pbCloseLightD};
+
+    arrOpen[iIndex]->setEnabled(true);
+    arrClose[iIndex]->setEnabled(false);
+    SetLightLamp(iIndex, false);
 }

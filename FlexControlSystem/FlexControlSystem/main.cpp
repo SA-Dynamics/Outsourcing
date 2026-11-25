@@ -34,6 +34,14 @@ void ApplyFont(QApplication &app)
     }
     app.setFont(font);
 }
+
+// 窗口尺寸(逻辑像素, 高 DPI 由 Qt 自动放大)。默认值是 100% 缩放下的理想尺寸;
+// 现场机可能是 200% 缩放(逻辑屏只有 1280x800), 所以这两个数只是"上限",
+// 真正用哪个尺寸由 main() 里按屏幕可用区裁剪。
+const int kWinDefaultWidth  = 1400;
+const int kWinDefaultHeight = 860;
+const int kWinMinWidth      = 1200;
+const int kWinMinHeight     = 700;
 }
 
 int main(int argc, char *argv[])
@@ -57,16 +65,29 @@ int main(int argc, char *argv[])
 
     ControlWidget w;
 
+    // ---- 按屏幕可用区定尺寸(2026-11-25 二十三次) --------------------------
+    // .ui 里的 1400x860 / 最小 1200x700 是"开发机 100% 缩放"下的值。现场机常开
+    // 200% 缩放, 逻辑可用区只有 1280x764: 写死 1400 会让右半边(含标题栏三个
+    // 窗口按钮)整体推到屏幕外, 最小 1300 又把它锁死缩不回来。
+    // 这里一律以 availableGeometry(不含任务栏)为上限裁剪, 屏小就最大化。
+    const QRect rcAvail = QGuiApplication::primaryScreen()->availableGeometry();
+    w.setMinimumSize(qMin(kWinMinWidth, rcAvail.width()),
+                     qMin(kWinMinHeight, rcAvail.height()));
+    w.resize(qMin(kWinDefaultWidth, rcAvail.width()),
+             qMin(kWinDefaultHeight, rcAvail.height()));
+
     w.show();
 
-    // 小屏防御: 屏幕可视区域小于窗口需求时最大化, 避免底部按钮溢出屏幕点不到
-    // (窗口 min 尺寸由布局决定, frameGeometry().height() 在 show 后才有真实值)
-    // 注意不能再用 showMaximized(): 窗口已去掉系统边框(见 ControlWidget 构造器),
-    // 无边框窗口按 screenGeometry 铺满会盖掉任务栏, 交由标题栏按可用区域最大化
-    const QRect sAvailable = QGuiApplication::primaryScreen()->availableGeometry();
-    if (w.frameGeometry().height() > sAvailable.height() ||
-        w.frameGeometry().width() > sAvailable.width())
+    if (w.width() >= kWinDefaultWidth && w.height() >= kWinDefaultHeight)
     {
+        // 屏装得下: 主动居中。Windows 给高 DPI 窗口的默认位置可能偏出右边界。
+        w.move(rcAvail.x() + (rcAvail.width() - w.width()) / 2,
+               rcAvail.y() + (rcAvail.height() - w.height()) / 2);
+    }
+    else
+    {
+        // 屏不够大: 铺满可用区。必须走自绘标题栏里的 availableGeometry 逻辑,
+        // 不能 showMaximized —— 无边框窗口那样会连任务栏一起盖住。
         w.MaximizeToScreen();
     }
 

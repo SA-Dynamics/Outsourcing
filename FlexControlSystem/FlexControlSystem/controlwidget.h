@@ -112,6 +112,9 @@ private:
     QThread *m_pConnectiveThread;
     ControlPanel *m_pControlWidget;
     ControlPanel *m_pModeWidget;
+    // 两个面板共用的一份"运动序列"状态(计数/聚拢保持/节奏快照/owner),
+    // 由上面两个面板各持一个指针(见 ControlPanel::UseSharedSequence)
+    ControlPanel::MotionSequenceState m_motionSequence;
     ConnectObject m_eConnectObject;
 
     // 保存IP 事务: 指令发出后置位, 收到结果(或断连)后清零,

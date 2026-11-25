@@ -173,7 +173,9 @@
              <item>
               <widget class="QCheckBox" name="cbMotionKeep">
                <property name="toolTip">
-                <string>勾选后下发&quot;无限时间动作&quot;(标志位=1): 一直动作, 直到点停止</string>
+                <string>勾选后一直持续到点&quot;结束运动&quot;:
+单条运动 = 下发&quot;无限时间动作&quot;(标志位=1);
+聚拢 = 一直交替发送水平/垂直居中(忽略&quot;运动时间&quot;), 由上位机逐轮续排</string>
                </property>
                <property name="text">
                 <string>保持</string>

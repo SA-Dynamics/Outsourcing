@@ -357,6 +357,12 @@ ControlWidget::ControlWidget(QWidget *parent)
     // 控制面板实例化, 一个用于配置, 一个用于控制
     m_pControlWidget = new ControlPanel(ui->ControlTabWidget, true);
     m_pModeWidget = new ControlPanel(ui->ModeTabWidget);
+    // 两个面板共享同一份"运动序列"状态(二十五次): 谁发的序列谁当 owner,
+    // 只有 owner 处理完成帧(递减/续队), 收尾时两个面板一起回空闲。
+    // 不共享的话, 切换窗口抄按钮态就会清掉一方的计数 —— 聚拢"保持"下计数
+    // 永不归零, 会出现"跑着却已解锁, 还能再点发送"/"停了却一直锁着"。
+    m_pControlWidget->UseSharedSequence(&m_motionSequence, m_pModeWidget);
+    m_pModeWidget->UseSharedSequence(&m_motionSequence, m_pControlWidget);
     // 配置面板初始不可下发(还没连上), 连接成功后由 OnConnectiveState 放开 ——
     // 2026-11-25 二十次: 配置窗口里的运动/料仓/光源按钮不再永久禁用,
     // 用户要"配完就地发一条看效果", 不必退回运行页再点一遍

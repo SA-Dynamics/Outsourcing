@@ -35,6 +35,27 @@ public:
         QList<QMap<QString, QVariant>> qlstMotionParams;
     };
 
+    // ---- 运动序列状态(2026-11-25 二十五次: 两个面板必须看见同一份) ----
+    // 运行页与"配置数据"窗口里的面板共用同一个通信引擎。以前两边各记各的计数,
+    // 切换窗口(抄按钮态)时必然清掉其中一方的计数: 第一个完成帧就把按钮解锁,
+    // 而电机还在跑; 聚拢"保持"下计数永远不归零, 这个错位会一直持续下去
+    // (表现为"停了却锁着"或"跑着却已解锁, 还能再点发送")。
+    // 所以计数与节奏放在一份状态里, ControlWidget 让两个面板指向同一个对象;
+    // 单面板使用(以及测试)时各指向自己的 m_ownSequence, 行为与以前完全一致。
+    // 只有 pOwner(发起者)处理完成帧(递减/续队), 收尾时两个面板一起回空闲 ——
+    // 否则同一次完成帧会被两个面板各减一次。
+    struct MotionSequenceState
+    {
+        quint32 u32Remaining = 0;        // 尚未完成的命令数(运动段 + 间隔段)
+        bool bRepeat = false;            // 聚拢"保持": 无限交替(见下)
+        int iSegHMs = 0;                 // 水平居中段时长快照(ms)
+        int iSegVMs = 0;                 // 垂直居中段时长快照(ms)
+        int iGapMs = 0;                  // 段间间隔快照(ms)
+        int iRoundMs = 0;                // 一轮墙钟时长(重启看门狗用)
+        quint32 u32RoundCmds = 0;        // 一轮的命令条数(运动段 + 间隔段)
+        ControlPanel *pOwner = nullptr;  // 发起者: 只有它处理完成帧(递减/续队)
+    };
+
     // 旧接口: 只读 = 本面板不允许下发运行指令。现在等价于 SetRunEnabled(false),
     // 保留只为兼容既有调用点/测试("配置数据"面板打开初期就是不可发的)
     void SetReadOnly(const bool bReadOnly);
@@ -54,6 +75,9 @@ public:
     // "运行页上灯已经关了, 配置窗口还认为它亮着, 关闭键点不动"这种错位。
     // 运动类型按钮不参与: 配置页要随时能点选切换编辑对象, 不受运行锁影响。
     void SyncRunButtonStates(const ControlPanel *pSource);
+    // 两个面板共享同一份运动序列状态(ControlWidget 构造时调用一次)。
+    // 不调用时的行为与以前完全一致(各记各的), 单面板使用与测试不受影响。
+    void UseSharedSequence(MotionSequenceState *pState, ControlPanel *pPeerPanel);
     // 断连/重连时清理运动锁(下位机侧在飞指令随链路一起作废, 界面必须回到空闲态,
     // 否则运动类型按钮会一直停在禁用态, 重连后怎么点都没反应)
     void ResetMotionUiState(void);
@@ -108,8 +132,46 @@ private:
     // 按间隔时长计时后照常回完成帧, 引擎的节拍与应答匹配逻辑完全不变;
     // 每个命令段(运动或间隔)完成都会触发一次 sigMotionTerminate,
     // 只有最后一个命令(计数归零)才恢复界面按钮。
-    quint32 m_u32MotionSeqRemaining = 0;                   // 序列中尚未完成的命令数(运动段+间隔段)
-    QTimer *m_pMotionSeqWatchdog = nullptr;                // 异常兜底(响应超时清队等导致计数卡住时强制恢复)
+    // ---- 运动序列状态(定义在类首 public 区, 这里只放成员与内部接口) ----
+    MotionSequenceState m_ownSequence;                  // 独立使用时的那一份
+    MotionSequenceState *m_pSequence = &m_ownSequence;
+    ControlPanel *m_pPeerPanel = nullptr;               // 对面的面板(ControlWidget 设置, 可空)
+    QTimer *m_pMotionSeqWatchdog = nullptr;             // 每个面板一个: 只有 owner 启停
+    void StartMotionSeqWatchdog(const int iWallMs, const quint32 u32Cmds);
+    // 序列收尾: 两个面板一起回空闲(非 owner 面板自己不会恢复, 见 terminate 处理)
+    void RestoreIdleButtonsBoth(void);
+
+    // ---- 聚拢序列的"保持"(2026-11-25 二十五次) ----
+    // 需求: 勾了「保持」的聚拢应该是"一直 H/V 交替", 直到用户点"结束运动",
+    // 而不是按"运动时间"(Gather 按钮自己的 timeuse)到点就停。
+    // 实现: 段本身仍按时间下发(每段靠下位机完成帧推进, 不能发无限动作, 见
+    // SendButtonMotion 的注释), 由上位机在队列见底时把同一个 H+V 周期再排一遍 ——
+    // 计数因此永远不归零, 界面全程停在"运动中"(停止键可用), 直到:
+    //   点了"结束运动" / 断连 / 看门狗超时 / 参数丢失。
+    // 一轮的长度与命令数在启动时快照, 续排沿用同一份(中途改界面不影响正在跑的节奏)。
+    // 按快照再排一轮 H [+间隔] V [+间隔], 返回实际入队的命令数(0 = 参数丢失, 排不进去)
+    quint32 QueueGatherRound(void);
+
+    // ---- 光源"时间模式"到点自动恢复(2026-11-24 二十四次) ----
+    // 需求: 时间模式(没勾「保持」)下点开光源, 到设定秒数就该把"打开"键放开,
+    // 不能逼用户去点一次"关闭"才知道可以再开。原来只靠下位机的 0x0E 完成帧恢复,
+    // 而现场固件到点灭灯后不一定回帧(或回得晚), 按钮就长期卡在"只能点关闭"。
+    // 做法: A~D 各一个单次定时器, 下发时按界面上的秒数起表, 到点无条件恢复该路。
+    // 两个例外不启动(它们下位机根本不会自动灭灯):
+    //   · 勾了「保持」           —— 常亮, 只能手动关;
+    //   · 没勾但是**时间 = 0**   —— 协议里"保持时间 0 = 常亮"(见固件 LightOnHandler),
+    //                              这条最容易被忽略: 0 秒不是"立刻灭", 是"永远亮"。
+    // 0x0E 完成帧仍然保留, 谁先到谁恢复(两个入口都幂等)。
+    QTimer *m_apLightRecoverTimers[4] = {nullptr, nullptr, nullptr, nullptr};
+    void StartLightRecover(const int iIndex, const int iSeconds, const bool bKeep);
+    void StopLightRecover(const int iIndex);
+    void StopAllLightRecover(void);
+    void RecoverLightChannel(const int iIndex);
+    // 两个面板之间交接"还剩多久到点": 配置窗口里点开灯、到点前就关窗时,
+    // 运行页要把剩余时间接过去, 否则那边会卡在"只能点关闭"。
+    // 返回 0 = 这一路没有本地倒计时(保持 / 时间 0 常亮 / 本来就没开)。
+    int LightRecoverRemainMs(const int iIndex) const;
+    void StartLightRecoverMs(const int iIndex, const int iMs);
     void SendButtonMotion(const ButtonParams &Button, const float fTimeUseOverride, const float fVoltageOverride = -1.0f);
     void StartGatherSequence(void);
     void ResetMotionSequence(void);
