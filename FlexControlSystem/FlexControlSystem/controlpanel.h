@@ -211,6 +211,8 @@ private:
 
     void SetDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16Angle);
     int16_t ChangeDialDirection(const GeneralMotion::MotionParams::MotionIndex eIndex, const int16_t s16DialValue);
+    // 写"当前选中按钮"的 angle_offset 并同步隐藏圆盘(输入框 / 圆盘两条路最后都走这里)
+    void ApplyAngleOffset(const int16_t s16Angle);
 
     // ---- 固件参数页(0x15/0x16 获取, 0x17/0x18 保存) ----
     // 12 个 QDoubleSpinBox 与协议 0x16 数据域一一对应(6 组动作 × 起始相位超前/相位偏移),
@@ -271,6 +273,9 @@ private slots:
     void on_pbG1_clicked();
     void on_pbG2_clicked();
     void on_dialAngleRegulation_valueChanged(int value);
+    // 角度输入框(二十六次: 转盘隐藏, 改成手输整数, 可带负号)
+    void on_leAngle_textEdited(const QString &qstrText);
+    void on_leAngle_editingFinished();
     void on_hsldSpeed_valueChanged(int value);          // 已废弃: speed 参数取消, 控件也隐藏, 保留只为不破坏 .ui 连接
     void on_hsVModify_valueChanged(int value);          // 垂直居中位置调节(水平滑块)
     void on_vsHModify_valueChanged(int value);          // 水平居中位置调节(竖直滑块)

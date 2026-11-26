@@ -308,7 +308,11 @@ ControlWidget::ControlWidget(QWidget *parent)
     // 一条 62px(系统栏 31px 的两倍) 的金属条。必须在这里而非 show() 之后设置:
     // setWindowFlags 会让窗口隐藏并重建原生窗口, 构造期调用才能无闪动。
     setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
-    ui->titleBar->SetTitle(windowTitle());
+    // 标题栏文字(2026-11-26): 二十六次先去掉英文 "FlexControlSystem", 二十七次
+    // 按用户要求换成公司中文名, 接在 logo 右侧。
+    // windowTitle 本身保留英文名 —— 自绘标题栏不画它, 但任务栏 / Alt-Tab 仍需要
+    // (置空的话任务栏会退化成显示进程名, 更乱)。
+    ui->titleBar->SetTitle(QStringLiteral("深圳市三同自动化技术有限公司"));
 
     // 去掉系统边框就没了右下角的缩放热区, 用 QSizeGrip 补回来(定位见 resizeEvent)
     m_pSizeGrip = new QSizeGrip(this);

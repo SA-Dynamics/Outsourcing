@@ -300,8 +300,21 @@
              </item>
              <item row="0" column="2">
               <widget class="QLineEdit" name="leAngle">
+               <property name="minimumSize">
+                <size>
+                 <width>80</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="toolTip">
+                <string>角度偏移：直接输入整数（可带负号），范围 -360 ~ 360。
+一个电周期是 360，360 与 0 等价。转盘已隐藏，角度以这里的数字为准</string>
+               </property>
                <property name="readOnly">
-                <bool>true</bool>
+                <bool>false</bool>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
                </property>
               </widget>
              </item>

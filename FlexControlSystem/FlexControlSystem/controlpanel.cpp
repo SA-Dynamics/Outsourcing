@@ -17,6 +17,8 @@
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QIcon>
+#include <QIntValidator>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPixmap>
 #include <QLabel>
@@ -37,6 +39,12 @@ const char *const kpszIconGray = "#9CA3AF";   // 与 QSS 里的禁用文字色�
 // 2026-11-25 协议时间域由 2 字节扩到 4 字节, 秒×10 最大 99990, 界面统一给到 9999s。
 // 改了这里要同步 doc/通信协议.docx 与下位机的解析宽度(下位机若还用 uint16 计时会回绕)。
 const double kMaxTimeUse = 9999.0;
+
+// 角度偏移(angle_offset)的输入上限(2026-11-26 二十六次)。
+// 固件按 (offset / 90) * 400 折算相位, 1600 = 一个电周期 = 360°, 所以 ±360 就是
+// 全部不重复的取值(360 与 0 等价); 再大只是同一圈里绕来绕去, 反而让人以为有效果。
+// 原来的转盘只能产生 -270 ~ 359(圆盘 0~359 减去四个方向的基准角), ±360 把它盖住了。
+const int kAngleOffsetLimit = 360;
 
 // 把单色图标整体换色: SourceIn 只保留新颜色的 alpha 形状, 抗锯齿边缘不受影响
 QPixmap RecolorPixmap(const QPixmap &pmSrc, const QColor &clrTint)
@@ -374,6 +382,22 @@ ControlPanel::ControlPanel(QWidget *parent, const bool bFlatRun) :
     }
 
     ui->dialAngleRegulation->setTracking(true);
+
+    // ---- 角度: 转盘隐藏, 改成直接填数字(2026-11-26 二十六次) ----
+    // 那个 150×150 的圆盘占掉整列却只干"拖到某个角度"一件事, 与右边的输入框完全重复;
+    // 现场调角度本来就习惯看数字。所以圆盘不再显示, 输入框改为可编辑:
+    //   只放行整数和负号(QIntValidator: 字母、小数点、空格都打不进去),
+    //   范围 ±360(= 一个电周期, 见 kAngleOffsetLimit)。
+    // 圆盘本身留着(只是 hide), 值仍跟着输入框同步 —— SetDialDirection 里那套
+    // "基准角 + 偏移 → 0~359"的换算不必重写, 以后想把圆盘放回来改一行 show 即可。
+    ui->dialAngleRegulation->hide();
+    ui->leAngle->setReadOnly(false);
+    ui->leAngle->setValidator(new QIntValidator(-kAngleOffsetLimit, kAngleOffsetLimit, this));
+    connect(ui->leAngle, &QLineEdit::textEdited, this, &ControlPanel::on_leAngle_textEdited);
+    connect(ui->leAngle, &QLineEdit::editingFinished, this, &ControlPanel::on_leAngle_editingFinished);
+    // 转盘撤掉后中间会空出一条, 位置仍由 .ui 的网格自己分
+    // (试过把竖向弹簧 verticalSpacer_6 收成 0, 这行并不会上移 —— 富余高度是按行均分的,
+    //  所以没动布局)。要把"角度调节"并到右边电压/频率那一列属于改版式, 需要时在 Designer 里挪。
 
     // 组合运动表单: 把 groupmotion 分别嵌进 G1Widget / G2Widget 两个容器
     // (容器是 .ui 里的空 QWidget, 这里给它套一层无边距布局)
@@ -1245,14 +1269,15 @@ void ControlPanel::SetDialDirection(const GeneralMotion::MotionParams::MotionInd
             break;
     }
 
-    if ((s16OriginDirection + s16Angle) >= 0)
-    {
-        ui->dialAngleRegulation->setValue(s16OriginDirection + s16Angle);
-    }
-    else
-    {
-        ui->dialAngleRegulation->setValue(s16OriginDirection + s16Angle + 360);
-    }
+    // 转盘已隐藏(二十六次), 这里的 setValue 只维持"圆盘值 = 基准角 + 偏移"这条不变量。
+    // 两件事必须做对:
+    //   · 屏蔽 valueChanged —— 否则会绕一圈回到 on_dialAngleRegulation_valueChanged,
+    //     把参数改写回 (圆盘值 - 基准角): 手输 -30 会被"归一化"成 330, 用户刚敲的数字
+    //     被偷偷换掉(物理上等价, 但对着屏幕解释不清)。
+    //   · 取模 360 —— 偏移 ±360 落在圆盘的 0~359 之外, 不取模会被 QDial 夹到 359。
+    const QSignalBlocker BlockD(ui->dialAngleRegulation);
+    const int iDialValue = ((s16OriginDirection + s16Angle) % 360 + 360) % 360;
+    ui->dialAngleRegulation->setValue(iDialValue);
 }
 
 
@@ -1966,6 +1991,61 @@ void ControlPanel::on_dialAngleRegulation_valueChanged(int value)
             int16_t s16DialValue = ChangeDialDirection(Button.eMotion, value);
             Button.qlstMotionParams.first()["angle_offset"] = s16DialValue;
             ui->leAngle->setText(QString::number(s16DialValue));
+        }
+    }
+}
+
+
+// 角度: 把界面上的数字写进"当前选中按钮"的参数, 并同步那个已隐藏的圆盘。
+// 越界按 ±360 夹住 —— 校验器在打字时已经挡了, 这里是粘贴/程序写入绕过校验器时的兜底。
+void ControlPanel::ApplyAngleOffset(const int16_t s16Angle)
+{
+    for (ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
+        {
+            Button.qlstMotionParams.first()["angle_offset"] = s16Angle;
+            SetDialDirection(Button.eMotion, s16Angle);
+            return;
+        }
+    }
+}
+
+
+// 边输入边生效: 每敲一个字符就落进参数(发送键按窗口内当前值下发)。
+// 中间态(""、只剩一个 "-")toInt 会失败, 此时先不动参数 —— 否则敲负号的一瞬间
+// 角度就被清零了。这种半截输入等 editingFinished 再规整。
+void ControlPanel::on_leAngle_textEdited(const QString &qstrText)
+{
+    bool bOk = false;
+    const int iValue = qstrText.toInt(&bOk);
+
+    if (!bOk)
+    {
+        return;
+    }
+
+    ApplyAngleOffset(static_cast<int16_t>(qBound(-kAngleOffsetLimit, iValue, kAngleOffsetLimit)));
+}
+
+
+// 编辑结束(回车 / 焦点离开): 把框里的文字规整回参数真值。
+// 少了这一步, 输入框会停在 "" 或 "-" 上, 看着像"角度被清空了", 而参数其实
+// 还是上一次的值 —— 显示与真值不一致, 现场最容易误判。
+void ControlPanel::on_leAngle_editingFinished(void)
+{
+    for (const ButtonParams &Button : m_lstMotionButtons)
+    {
+        if (m_qstrCurrentMotionButton == Button.qstrName && !Button.qlstMotionParams.isEmpty())
+        {
+            const QString qstrValue = QString::number(Button.qlstMotionParams.first().value("angle_offset").toInt());
+
+            if (ui->leAngle->text() != qstrValue)
+            {
+                ui->leAngle->setText(qstrValue);
+            }
+
+            return;
         }
     }
 }
